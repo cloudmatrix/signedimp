@@ -568,7 +568,7 @@ def _signedimp_md5(data):
     """
     global _signedimp_md5type
     if not _signedimp_md5type:
-        from signedimp.pyhash.md5 import MD5Type
+        from signedimp.purepy.md5 import MD5Type
         _signedimp_md5type = MD5Type
     hash = _signedimp_md5type()
     hash.update(data)
@@ -584,7 +584,7 @@ def _signedimp_sha1(data):
     """
     global _signedimp_sha1type
     if not _signedimp_sha1type:
-        from signedimp.pyhash.sha1 import sha
+        from signedimp.purepy.sha1 import sha
         _signedimp_sha1type = sha
     return _signedimp_sha1type(data).hexdigest()
 
