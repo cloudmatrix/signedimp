@@ -58,7 +58,7 @@ class TestSignedImp_DefaultImport(unittest.TestCase):
         p = self._runpy("from signedimp_test.test1 import value",
                         "print value")
         self.assertEquals(p.wait(),0)
-        self.assertEquals(p.stdout.read(),"7\n")
+        self.assertEquals(p.stdout.read().strip(),"7")
 
     def test_no_signatures_means_failure(self):
         p = self._runpy("from signedimp import SignedImportManager",
@@ -79,17 +79,17 @@ class TestSignedImp_DefaultImport(unittest.TestCase):
                         "import signedimp_test.test1",
                         "print signedimp_test.test1.value")
         self.assertEquals(p.wait(),0)
-        self.assertEquals(p.stdout.read(),"7\n")
+        self.assertEquals(p.stdout.read().strip(),"7")
  
     def test_corrupted_sig_fails(self):
         k = RSAKeyWithPSS.generate()
         self.signit(k)
-        sigdata = self.readPackagedFile(signedimp.SIGNEDIMP_HASHFILE_NAME)
+        sigdata = self.readPackagedFile(signedimp.HASHFILE_NAME)
         if sigdata[50] == "A":
             sigdata = sigdata[:50] + "B" + sigdata[51:]
         else:
             sigdata = sigdata[:50] + "A" + sigdata[51:]
-        self.writePackagedFile(signedimp.SIGNEDIMP_HASHFILE_NAME,sigdata)
+        self.writePackagedFile(signedimp.HASHFILE_NAME,sigdata)
         p = self._runpy("from signedimp import SignedImportManager",
                         "from signedimp import RSAKeyWithPSS",
                         "k = %s" % (repr(k.get_public_key(),)),
@@ -103,7 +103,7 @@ class TestSignedImp_DefaultImport(unittest.TestCase):
     def test_corrupted_hash_fails(self):
         k = RSAKeyWithPSS.generate()
         self.signit(k)
-        sigdata = self.readPackagedFile(signedimp.SIGNEDIMP_HASHFILE_NAME)
+        sigdata = self.readPackagedFile(signedimp.HASHFILE_NAME)
         new_sigdata = []
         for ln in sigdata.split("\n"):
             if "signedimp_test.test2" not in ln:
@@ -113,7 +113,7 @@ class TestSignedImp_DefaultImport(unittest.TestCase):
             else:
                 new_sigdata.append(ln[:10]+"c"+ln[11:])
         new_sigdata = "\n".join(new_sigdata)
-        self.writePackagedFile(signedimp.SIGNEDIMP_HASHFILE_NAME,new_sigdata)
+        self.writePackagedFile(signedimp.HASHFILE_NAME,new_sigdata)
         p = self._runpy("from signedimp import SignedImportManager",
                         "from signedimp import RSAKeyWithPSS",
                         "k = %s" % (repr(k.get_public_key(),)),
@@ -136,7 +136,7 @@ class TestSignedImp_DefaultImport(unittest.TestCase):
                         "import signedimp_test.test1",
                         "print signedimp_test.test1.value")
         self.assertEquals(p.wait(),0)
-        self.assertEquals(p.stdout.read(),"7\n")
+        self.assertEquals(p.stdout.read().strip(),"7")
         p = self._runpy("from signedimp import SignedImportManager",
                         "from signedimp import RSAKeyWithPSS",
                         "k = %s" % (repr(k.get_public_key(),)),
@@ -158,7 +158,6 @@ class TestSignedImp_ZipImport(TestSignedImp_DefaultImport):
         bscode = "import sys; sys.path = [%s]; " % (repr(libpath),)
         for stmt in code:
             bscode += stmt + "; "
-        shutil.copyfile(libpath,"/home/rfk/library.zip")
         cmd.append(bscode)
         p = subprocess.Popen(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
         return p
@@ -189,6 +188,57 @@ class TestSignedImp_ZipImport(TestSignedImp_DefaultImport):
         zf = zipfile.ZipFile(libpath,"a")
         zf.writestr(path,data)
 
+
+
+try:
+    import py2exe
+except ImportError:
+    pass
+else:
+    from distutils.core import setup as dist_setup
+
+    class TestSignedImp_py2exe(unittest.TestCase):
+
+        def setUp(self):
+            self.tdir = tempfile.mkdtemp()
+            scriptfile = os.path.join(self.tdir,"script.py")
+            self.distdir = distdir = os.path.join(self.tdir,"dist")
+            with open(scriptfile,"w") as f:
+                f.write("print 'RUNNING'\n")
+                f.write("import signedimp.crypto.rsa\n")
+                f.write("print 'SUCCESS'\n")
+            dist_setup(name="testapp",version="0.1",scripts=[scriptfile],
+                       options={"bdist":{"dist_dir":distdir}},
+                       console=[scriptfile],
+                       script_args=["py2exe"])
+
+        def test_the_test(self):
+            p = subprocess.Popen(os.path.join(self.distdir,"script.exe"))
+            self.assertEquals(p.wait(),0)
+
+        def test_signed_app_succeeds(self):
+            k = RSAKeyWithPSS.generate()
+            signedimp.tools.sign_py2exe_app(self.distdir,k)
+            p = subprocess.Popen(os.path.join(self.distdir,"script.exe"))
+            self.assertEquals(p.wait(),0)
+
+        def test_unsigned_app_fails(self):
+            k = RSAKeyWithPSS.generate()
+            signedimp.tools.sign_py2exe_app(self.distdir,k)
+            os.unlink(os.path.join(self.distdir,signedimp.HASHFILE_NAME))
+            p = subprocess.Popen(os.path.join(self.distdir,"script.exe"))
+            self.assertNotEquals(p.wait(),0)
+
+        def tearDown(self):
+            print self.tdir
+            return
+            for _ in xrange(10):
+                try:
+                    shutil.rmtree(self.tdir)
+                    break
+                except EnvironmentError:
+                    pass
+ 
 
 class TestMisc(unittest.TestCase):
 

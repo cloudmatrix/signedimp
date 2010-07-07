@@ -7,6 +7,8 @@
 This module contains the minimal code necessary to bootstrap the use of signed
 imports.  It's carefully constructed not to perform any imports itself, save
 modules known to be built into the interpreter or that are already loaded.
+It's also carefully constructed so that it can be incorporated directly
+into other code with a minimum of fuss.
 
 To get any real security out of this, you'll need to incorporate this script
 wholesale into your main application script so that it runs before you try to
@@ -17,27 +19,19 @@ obtain the necessary code.
 """
 
 
-SIGNEDIMP_HASHFILE_NAME = "signedimp-manifest.txt"
+__all__ = ["HASHFILE_NAME","IntegrityCheckError",
+           "IntegrityCheckFailed","IntegrityCheckMissing",
+           "SignedImportManager","RSAKeyWithPSS"]
 
 
-class IntegrityCheckError(Exception):
-    """Error raised when integrity of a resource cannot be verified."""
-    pass
-
-class IntegrityCheckFailed(IntegrityCheckError):
-    """Error raised when an integrity check is available, and fails."""
-    pass
-
-class IntegrityCheckMissing(IntegrityCheckError):
-    """Error raised when an integrity check is not available."""
-    pass
-
-
+#  Careful now, we can't just import things willy-nilly.  The following
+#  tries to grab the things we absolutely need without polluting the
+#  global namespace.
 
 def _signedimp_mod_available(modname):
     """Check whether the named module is safely available.
 
-    To be safe it must be either built into the interpreter, or be already
+    To be safe it must be either built into the interpreter, or already
     loaded in sys.modules.
     """
     if modname in sys.builtin_module_names:
@@ -45,7 +39,6 @@ def _signedimp_mod_available(modname):
     if sys.modules.get(modname) is not None:
         return True
     return False
-
 
 #  The sys module is always builtin, since it's needed to do imports.
 import sys
@@ -73,16 +66,17 @@ def _signedimp_make_os_module():
     if _signedimp_mod_available("os") and _signedimp_mod_available("os.path"):
         import os
         return os
-    if _signedimp_mod_avilable("posix"):
+    if _signedimp_mod_available("posix"):
         from posix import stat
         SEP = "/"
-    elif _signedimp_mod_avilable("nt"):
+    elif _signedimp_mod_available("nt"):
         from nt import stat
         SEP = "\\"
     else:
         err = "no os modules are safely available, integrity checks impossible"
         raise IntegrityCheckMissing(err)
     class os:
+        sep = SEP
         class path:
             @staticmethod
             def join(*args):
@@ -100,11 +94,191 @@ def _signedimp_make_os_module():
 os = _signedimp_make_os_module()
 
 
+HASHFILE_NAME = "signedimp-manifest.txt"
+
+
+class IntegrityCheckError(Exception):
+    """Error raised when integrity of a resource cannot be verified."""
+    pass
+
+class IntegrityCheckFailed(IntegrityCheckError):
+    """Error raised when an integrity check is available, and fails."""
+    pass
+
+class IntegrityCheckMissing(IntegrityCheckError):
+    """Error raised when an integrity check is not available."""
+    pass
+
+
+class _signedimp_util:
+    """Namespace containing utility functions that won't be exported.
+
+    This namespace contains pure-python versions of some utility functions 
+    that we need for this module.  Ordinarily you would use native versions
+    of these functions, but that might require importing modules that can't
+    be safely accessed during bootstrapping.  We need the pure-python versions
+    as a last resort.
+    """
+
+    _md5type = None
+    @staticmethod
+    def md5(data=None):
+        """Pure-python implementation of md5 hash.
+
+        This is horribly slow and probably broken, but it's the best we can do
+        if hashlib is not available safely.  It uses the pure-python MD5 code
+        from the PyPy project, which is available under the Python License.
+        """
+        if not _signedimp_util._md5type:
+            from signedimp.cryptobase.md5 import MD5Type
+            _signedimp_util._md5type = MD5Type
+        return _signedimp_util._md5type(data)
+
+    _sha1type = None
+    @staticmethod
+    def sha1(data):
+        """Pure-python implementation of sha1 hash.
+
+        This is horribly slow and probably broken, but it's the best we can do
+        if hashlib is not available safely.  It uses the pure-python SHA1 code
+        from the PyPy project, which is available under the Python License.
+        """
+        if not _signedimp_util._sha1type:
+            from signedimp.cryptobase.sha1 import sha1
+            _signedimp_util._sha1type = sha1
+        return _signedimp_util._sha1type(data)
+
+    _RSAKeyWithPSS = None
+    @staticmethod
+    def RSAKeyWithPSS(modulus,pubexp,privexp=None):
+        """Pure-python implementation of RSA-PSS verification.
+
+        This is horribly slow and probably broken, but it's the best we can do
+        if PyCrypto is not available safely.
+        """
+        if not _signedimp_util._RSAKeyWithPSS:
+            from signedimp.cryptobase.rsa import RSAKeyWithPSS
+            _signedimp_util._RSAKeyWithPSS = RSAKeyWithPSS
+        return _signedimp_util._RSAKeyWithPSS(modulus,pubexp,privexp)
+
+    @staticmethod
+    def _b64unquad(quad):
+        """Decode a single base64-encoded quad of bytes."""
+        n = 0
+        for c in quad:
+            n = n << 6
+            if "A" <= c <= "Z":
+                n += ord(c) - 65
+            elif "a" <= c <= "z":
+                n += ord(c) - 71
+            elif "0" <= c <= "9":
+                n += ord(c) + 4
+            elif c == "+":
+                n += 62
+            elif c == "/":
+                n += 63
+            else:
+                raise ValueError
+        bytes = []
+        while n > 0:
+            bytes.append(chr(n & 0x000000FF))
+            bytes.append(chr((n & 0x0000FF00) >> 8))
+            bytes.append(chr((n & 0x00FF0000) >> 16))
+            bytes.append(chr((n & 0xFF000000) >> 24))
+            n = n >> 32
+        bytes = "".join(reversed(bytes))
+        return bytes[-3:]
+
+    @staticmethod
+    def b64decode(data):
+        """Pure-python base-64 decoder.
+
+        This is just awful and should only be used when the base64 module
+        is not available.
+        """
+        output = []
+        if len(data) % 4 != 0:
+            raise ValueError("b64 data must be multiple of 4 in length")
+        for i in xrange(0,len(data),4):
+            quad = data[i:i+4]
+            if quad.endswith("=="):
+                quad = quad[:2]+"AA"
+                trim = 2
+            elif quad.endswith("="):
+                quad = quad[:3]+"A"
+                trim = 1
+            else:
+                trim = 0
+            if trim:
+                output.append(_signedimp_util._b64unquad(quad)[:-1*trim])
+            else:
+                output.append(_signedimp_util._b64unquad(quad))
+        return "".join(output)
+
+    @staticmethod
+    def recreate():
+        """Try to make the best versions of the utility funcs we can.
+
+        This method should be called whenever a new set of imports become
+        available.  It will interrogate the runtime environment and try to
+        find better implementations of the utility functions defined on
+        this class.
+        """
+        if _signedimp_mod_available("base64"):
+            try:
+                import base64
+                _signedimp_util.b64decode = staticmethod(base64.b64decode)
+            except ImportError:
+                pass
+        if _signedimp_mod_available("signedimp.crypto"):
+            # Awesome, we can use our crypto primitives directly
+            try:
+                import signedimp.crypto.md5
+                import signedimp.crypto.sha1
+                import signedimp.crypto.rsa
+                _signedimp_util.md5 = md5.md5
+                _signedimp_util.sha1 = sha1.sha1
+                _signedimp_util.RSAKeyWithPSS = rsa.RSAKeyWithPSS
+            except ImportError:
+                pass
+        elif _signedimp_mod_available("hashlib"):
+            # Great, we can use hashlib directly
+            try:
+                import hashlib
+                _signedimp_util.md5 = hashlib.md5
+                _signedimp_util.sha1 = hashlib.sha1
+            except ImportError:
+                pass
+        elif _signedimp_mod_available("_hashlib"):
+            # Good, we can use the exposed openssl interface directly
+            try:
+                import _hashlib
+                _signedimp_util.md5 = _hashlib.openssl_md5
+                _signedimp_util.sha1 = _hashlib.openssl_sha1
+            except (ImportError,AttributeError):
+                pass
+        else:
+            if _signedimp_mod_available("_md5"):
+                #  OK, at least md5 is builtin
+                import _md5
+                _signedimp_util.md5 = _md5.new
+            if _signedimp_mod_available("_sha"):
+                #  OK, at least sha1 is builtin
+                import _sha
+                _signedimp_util.sha1 = _sha.new
+        #  If all else fails, we've left them as pure-python implementations
+
+
+# We might be lucky and have some modules availabe...
+_signedimp_util.recreate()
+
+
 class SignedHashDatabase(object):
     """An in-memory database of verified hash data.
 
     This class is used to validate generic data blobs against a signed database
-    of their expected hash values.
+    of their expected hash values.  It encapsulates the file-parsing and
+    verification logic shared by SignedImportManager and SignedLoader.
     """
 
     def __init__(self,valid_keys=[],hashdata=None):
@@ -124,22 +298,23 @@ class SignedHashDatabase(object):
                 raise IntegrityCheckFailed("invalid hash for "+name)
 
     def _check_hash(self,type,hash,data):
-        if type == "md5":
-            return _signedimp_md5(data) == hash
+        """Check whether the hash of the given data matches the one given."""
         if type == "sha1":
-            return _signedimp_sha1(data) == hash
+            return _signedimp_util.sha1(data).hexdigest() == hash
+        if type == "md5":
+            return _signedimp_util.md5(data).hexdigest() == hash
         raise ValueError("unknown hash type: %s" % (type,))
 
     def parse_hash_data(self,hashdata):
         """Load hash data from the given string.
 
-        The format is a simple text file where the initial lines give a key
-        fingerprint and signature, then there's a blank line and a hash type
+        The format is a simple text blob where the initial lines give key
+        fingerprints and signatures, then there's a blank line and a hash type
         identifier, then each remaining line is a hash db entry.  Example:
 
           ----
-          key1fingerprint signature1
-          key2fingerprint signature2
+          key1fingerprint base64-signature1
+          key2fingerprint base64-signature2
 
           md5
           m 76f3f13442c26fd4f1c709c7b03c6b76 os
@@ -159,12 +334,13 @@ class SignedHashDatabase(object):
                 break
             try:
                 fingerprint,signature = ln.split()
-                signature = _signedimp_b64decode(signature)
+                signature = _signedimp_util.b64decode(signature)
             except ValueError, e:
                 return
             for k in self.valid_keys:
                 if k.fingerprint() == fingerprint:
                     signatures.append((k,signature))
+        #  If there weren't any usable signatures, we can't use this data.
         if not signatures:
             return
         #  Check the signature for each key
@@ -173,12 +349,12 @@ class SignedHashDatabase(object):
             if not k.verify(signeddata,sig):
                 err = "bad signature from " + fingerprint
                 raise IntegrityCheckFailed(err)
-        #  Next is the hash type identifier
+        #  Next line is the hash type identifier
         try:
             htyp = lines.next().strip()
         except StopIteration:
             return
-        #  Now we can load each hash line
+        #  Now we can load each hash line into the database
         for ln in lines:
             try:
                 typ,hval,name = ln.strip().split(None,2)
@@ -211,7 +387,7 @@ class SignedImportManager(object):
         """Install this manager into the process import machinery."""
         if self not in sys.meta_path:
             sys.meta_path.insert(0,self)
-        #  Try to speed things up by loading faster crypto primatives.
+        #  Try to speed things up by loading faster crypto primitives.
         for mod in ("signedimp.crypto",):
             try:
                 loader = self.find_module(mod)
@@ -219,17 +395,16 @@ class SignedImportManager(object):
                     loader.load_module(mod)
             except (ImportError,IntegrityCheckMissing,):
                 pass
-        _signedimp_make_cryptofuncs()
-
+        _signedimp_util.recreate()
 
     def find_module(self,fullname,path=None):
         """Get the loader for the given module.
 
         This method locates the loader that would ordinarily be used for the
-        given module, and wraps it in a SingledLoader instance so that all
+        given module, and wraps it in a SignedLoader instance so that all
         data is validated immediately prior to being loaded.
         """
-        print >>sys.stderr, "FIND", fullname
+        print >>sys.stderr, "FIND", fullname, sys.path
         loader = self._find_loader(fullname,path)
         print >>sys.stderr, "LOADER", fullname, loader
         return SignedLoader(self,loader)
@@ -237,28 +412,32 @@ class SignedImportManager(object):
     def _find_loader(self,fullname,path):
         """Find the loader that would normally be used for the given module.
 
-        This basically emulates the standard lookup machinery, finding the
-        loader that we need to interrogate for details on the given module.
+        This basically emulates the standard lookup machinery defined by PEP
+        302 to find the loader that we need to interrogate for details on the
+        given module.
         """
+        if fullname in sys.builtin_module_names:
+            return DefaultImporter(sys.path[0] or "")
         found_me = False
         for mphook in sys.meta_path:
             if found_me:
                 loader = mphook.find_module(fullname,path)
                 if loader is not None:
                     return loader
-                # zipimporter requires slashes instead of dots :-(
-                loader = mphook.find_module(fullname.replace(".","/"),path)
-                if loader is not None:
-                    return loader
             elif mphook is self:
                 found_me = True
         for path in sys.path:
             importer = self._get_importer(path)
-            loader = importer.find_module(fullname)
-            if loader is not None:
-                return loader
-            # zipimporter requires slashes instead of dots :-(
-            loader = importer.find_module(fullname.replace(".","/"),path)
+            is_zipimport = False
+            try:
+                if importer.__class__.__name__ == "zipimporter":
+                    is_zipimport = True
+            except AttributeError:
+                pass
+            if is_zipimport:
+                loader = importer.find_module(fullname.replace(".",os.sep),path)
+            else:
+                loader = importer.find_module(fullname)
             if loader is not None:
                 return loader
         raise ImportError(fullname)
@@ -295,40 +474,55 @@ class SignedLoader:
     The SignedImportManager returns instances of this class to wrap whatever
     loader would ordinarily be used for a given module.  When requested to
     load a module or data file, this wrapper first checks its hash against
-    the loaded database and errors out if it doesn't match.
+    the loaded database and errors out if it doesn't match or is not present.
     """
 
     def __init__(self,manager,loader):
         self.manager = manager
         self.loader = loader
+        #  Sadly, zipimport expects package components to be separated by
+        #  os.sep instead of a dot.  This violates PEP 302 but we're stuck
+        #  with it :-(
+        self.is_zipimport = False
+        try:
+            if loader.__class__.__name__ == "zipimporter":
+                self.is_zipimport = True
+        except AttributeError:
+            pass
         self.hashdb = SignedHashDatabase(manager.valid_keys)
         try:
-            hashdata = self.loader.get_data(SIGNEDIMP_HASHFILE_NAME)
+            hashdata = self.loader.get_data(HASHFILE_NAME)
         except EnvironmentError:
             pass
         else:
             self.hashdb.parse_hash_data(hashdata)
 
     def load_module(self,fullname):
-        """Load the specific module, checking its integrity first."""
+        """Load the specified module, checking its integrity first.
+
+        This method is really key to the whole apparatus - it requests the
+        raw module data from the loader object, verifies it against the
+        hash database, and only if it's valid does it request that the loader
+        actually import the module.
+        """
+        print >>sys.stderr, "LOAD", fullname
         try:
             return sys.modules[fullname]
         except KeyError:
             pass
         if fullname not in sys.builtin_module_names:
+            print >>sys.stderr, "VALIDATING", fullname
+            data = self._get_module_data(fullname)
             if self.is_package(fullname):
                 valname = fullname + ".__init__"
             else:
                 valname = fullname
-            data = self._get_module_data(fullname)
-            print >>sys.stderr, "VALIDATE", fullname
             self.validate_module(valname,data)
-            print >>sys.stderr, "OK", fullname
-        # zipimporter requires slashes in module name, not dots per PEP 302.
-        try:
+            print >>sys.stderr, "VALID", fullname
+        if self.is_zipimport:
+            return self.loader.load_module(fullname.replace(".",os.sep))
+        else:
             return self.loader.load_module(fullname)
-        except ImportError:
-            return self.loader.load_module(fullname.replace(".","/"))
 
     def get_data(self,path):
         """Get the data from the given path, checking its integrity first."""
@@ -337,32 +531,42 @@ class SignedLoader:
         return data
 
     def is_package(self,fullname):
-        # zipimporter requires slashes in module name, not dots per PEP 302.
-        try:
+        """Check whether the given module is a package."""
+        if self.is_zipimport:
+            return self.loader.is_package(fullname.replace(".",os.sep))
+        else:
             return self.loader.is_package(fullname)
-        except ImportError:
-            return self.loader.is_package(fullname.replace(".","/"))
 
     def get_code(self,fullname):
-        # zipimporter requires slashes in module name, not dots per PEP 302.
-        try:
+        """Get the code object for the given module.
+
+        If you *really* needed to circumvent the checking of signed imports,
+        you could use this method to get the module code object and create
+        the module yourself.  But seriously, why would you do that?
+        """
+        if self.is_zipimport:
+            return self.loader.get_code(fullname.replace(".",os.sep))
+        else:
             return self.loader.get_code(fullname)
-        except ImportError:
-            return self.loader.get_code(fullname.replace(".","/"))
 
     def get_source(self,fullname):
-        # zipimporter requires slashes in module name, not dots per PEP 302.
-        try:
+        """Get the code object for the given module.
+
+        If you *really* needed to circumvent the checking of signed imports,
+        you could use this method to get the module source code, compile it and
+        create the module yourself.  But seriously, why would you do that?
+        """
+        if self.is_zipimport:
+            return self.loader.get_source(fullname.replace(".",os.sep))
+        else:
             return self.loader.get_source(fullname)
-        except ImportError:
-            return self.loader.get_source(fullname.replace(".","/"))
 
     def get_filename(self,fullname):
-        # zipimporter requires slashes in module name, not dots per PEP 302.
-        try:
+        """Get the filename associated with the given module."""
+        if self.is_zipimport:
+            return self.loader.get_filename(fullname.replace(".",os.sep))
+        else:
             return self.loader.get_filename(fullname)
-        except ImportError:
-            return self.loader.get_filename(fullname.replace(".","/"))
 
     def validate_module(self,fullname,data):
         """Validate the given module data against our signature database."""
@@ -375,9 +579,9 @@ class SignedLoader:
     def _validate(self,typ,name,data):
         """Validate date for the given type specifier and name.
 
-        This performs validate against the local database and the main manager
-        database.  If it's not found in either location, IntegrityCheckMissing
-        error is raised.
+        This performs validation against the local database and the main
+        manager database.  If a valid hash for the item is not found in
+        either location, IntegrityCheckMissing error is raised.
         """
         try:
             self.hashdb.validate(typ,name,data)
@@ -419,6 +623,7 @@ class SignedLoader:
                     pass
                 else:
                     data.append(new_data)
+                    break
         return "\x00".join(data)
 
 
@@ -451,6 +656,7 @@ class _DefaultImporter:
         self.path = path
 
     def _exists(self,path,*args):
+        """Shortcut for checking if a file exists on the given search path."""
         if path is None:
             path = [self.path]
         for p in path:
@@ -459,6 +665,10 @@ class _DefaultImporter:
         return False
 
     def find_module(self,fullname,path=None):
+        """Find a loader for the given module.
+
+        If the module can be located, this method will always return self.
+        """
         if fullname in sys.builtin_module_names:
             return self
         if "." not in fullname:
@@ -475,6 +685,11 @@ class _DefaultImporter:
         return None
 
     def _get_module_info(self,fullname):
+        """Get the module info tuple for the given module.
+
+        This is the tuple returned by imp.find_module(), but we have some
+        extra logic to correctly handle dotted module names.
+        """
         if "." not in fullname:
             modname = fullname
             path = None
@@ -485,6 +700,7 @@ class _DefaultImporter:
         return imp.find_module(modname,path)
 
     def load_module(self,fullname):
+        """Load the given module."""
         try:
             return sys.modules[fullname]
         except KeyError:
@@ -509,12 +725,14 @@ class _DefaultImporter:
             raise
 
     def is_package(self,fullname):
+        """Check if the given module is a package."""
         file,pathname,description = self._get_module_info(fullname)
         if file is not None:
             file.close()
         return (description[2] == imp.PKG_DIRECTORY)
 
     def get_source(self,fullname):
+        """Get the source code for the given module."""
         file,pathname,description = self._get_module_info(fullname)
         if file is not None:
             file.close()
@@ -545,6 +763,7 @@ class _DefaultImporter:
         return None
 
     def get_code(self,fullname):
+        """Get the code object for the given module."""
         file,pathname,description = self._get_module_info(fullname)
         if file is not None:
             file.close()
@@ -581,165 +800,11 @@ class _DefaultImporter:
 
         
     def get_data(self,path):
+        """Get the specific data file."""
         return open(os.path.join(self.path,path),"rb").read()
 
 
-def _signedimp_make_cryptofuncs():
-    """Make the best versions of hashfuncs we can manage.
 
-    This attempts to replace the default pure-python hash functions with
-    something faster, assuming such a module is available.
-    """
-    global _signedimp_md5
-    global _signedimp_sha1
-    global _signedimp_b64decode
-    global RSAKeyWithPSS
-    if _signedimp_mod_available("base64"):
-        try:
-            import base64
-            def _signedimp_b64decode(data):
-                return base64.b64decode(data)
-        except ImportError:
-            pass
-    if _signedimp_mod_available("signedimp.crypto"):
-        # Awesome, we can use our crypto primatives directly
-        try:
-            import signedimp.crypto.md5
-            import signedimp.crypto.sha1
-            import signedimp.crypto.rsa
-            def _signedimp_md5(data):
-                return signedimp.crypto.md5.md5(data).hexdigest()
-            def _signedimp_sha1(data):
-                return signedimp.crypto.sha1.sha1(data).hexdigest()
-            RSAKeyWithPSS = signedimp.crypto.rsa.RSAKeyWithPSS
-        except ImportError:
-            pass
-    elif _signedimp_mod_available("hashlib"):
-        # Great, we can use hashlib directly
-        try:
-            import hashlib
-            def _signedimp_md5(data):
-               return hashlib.md5(data).hexdigest()
-            def _signedimp_sha1(data):
-                return hashlib.sha1(data).hexdigest()
-        except ImportError:
-            pass
-    elif _signedimp_mod_available("_hashlib"):
-        # Good, we can use the exposed openssl interface directly
-        try:
-            import _hashlib
-            _hashlib.openssl_md5
-            _hashlib.openssl_sha1
-            def _signedimp_md5(data):
-                return _hashlib.openssl_md5(data).hexdigest()
-            def _signedimp_sha1(data):
-                return _hashlib.openssl_sha1(data).hexdigest()
-        except ImportError:
-            pass
-    else:
-        if _signedimp_mod_available("_md5"):
-            #  OK, at least md5 is builtin
-            import _md5
-            def _signedimp_md5(data):
-                return _md5.new(data).hexdigest()
-        if _signedimp_mod_available("_sha"):
-            #  OK, at least sha1 is builtin
-            import _sha
-            def _signedimp_sha1(data):
-                return _sha.new(data).hexdigest()
-        #  If all else fails, we've left them as pure-python implementations
-
-_signedimp_md5type = None
-def _signedimp_md5(data):
-    """Pure-python implementation of md5 hash.
-
-    This is horribly slow and probably broken, but it's the best we can do
-    if hashlib is not available safely.  It uses the pure-python MD5 code
-    from the PyPy project, which is avilable under the Python License.
-    """
-    global _signedimp_md5type
-    if not _signedimp_md5type:
-        from signedimp.cryptobase.md5 import MD5Type
-        _signedimp_md5type = MD5Type
-    hash = _signedimp_md5type()
-    hash.update(data)
-    return hash.hexdigest()
-
-_signedimp_sha1type = None
-def _signedimp_sha1(data):
-    """Pure-python implementation of sha1 hash.
-
-    This is horribly slow and probably broken, but it's the best we can do
-    if hashlib is not available safely.  It uses the pure-python SHA1 code
-    from the PyPy project, which is avilable under the Python License.
-    """
-    global _signedimp_sha1type
-    if not _signedimp_sha1type:
-        from signedimp.cryptobase.sha1 import sha1
-        _signedimp_sha1type = sha1
-    return _signedimp_sha1type(data).hexdigest()
-
-_signedimp_RSAKeyWithPSS = None
-def RSAKeyWithPSS(modulus,pub_exponent):
-    """Pure-python implementation of RSA-PSS verification.
-
-    This is horribly slow and probably broken, but it's the best we can do
-    if PyCrypto is not available safely.
-    """
-    global _signedimp_RSAKeyWithPSS
-    if not _signedimp_RSAKeyWithPSS:
-        from signedimp.cryptobase.rsa import RSAKeyWithPSS
-        _signedimp_RSAKeyWithPSS = RSAKeyWithPSS
-    return _signedimp_RSAKeyWithPSS(modulus,pub_exponent)
-
-_signedimp_make_cryptofuncs()
-
-
-def _signedimp_b64unquad(quad):
-    """Decode a single base64-encoded quad of bytes."""
-    n = 0
-    for c in quad:
-        n = n << 6
-        if "A" <= c <= "Z":
-            n += ord(c) - 65
-        elif "a" <= c <= "z":
-            n += ord(c) - 71
-        elif "0" <= c <= "9":
-            n += ord(c) + 4
-        elif c == "+":
-            n += 62
-        elif c == "/":
-            n += 63
-        else:
-            raise ValueError
-    bytes = []
-    while n > 0:
-        bytes.append(chr(n & 0x000000FF))
-        bytes.append(chr((n & 0x0000FF00) >> 8))
-        bytes.append(chr((n & 0x00FF0000) >> 16))
-        bytes.append(chr((n & 0xFF000000) >> 24))
-        n = n >> 32
-    bytes = "".join(reversed(bytes))
-    return bytes[-3:]
-
-
-def _signedimp_b64decode(data):
-    output = []
-    if len(data) % 4 != 0:
-        raise ValueError("b64 data must be multiple of 4 in length")
-    for i in xrange(0,len(data),4):
-        quad = data[i:i+4]
-        if quad.endswith("=="):
-            quad = quad[:2]+"AA"
-            trim = 2
-        elif quad.endswith("="):
-            quad = quad[:3]+"A"
-            trim = 1
-        else:
-            trim = 0
-        if trim:
-            output.append(_signedimp_b64unquad(quad)[:-1*trim])
-        else:
-            output.append(_signedimp_b64unquad(quad))
-    return "".join(output)
+def RSAKeyWithPSS(*args,**kwds):
+    return _signedimp_util.RSAKeyWithPSS(*args,**kwds)
 

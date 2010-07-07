@@ -2,7 +2,7 @@
 #  All rights reserved; available under the terms of the BSD License.
 """
 
-  signedimp.cryptobase.rsa:  RSA cryto primatives in pure python
+  signedimp.cryptobase.rsa:  RSA cryto primitives in pure python
 
 """
 

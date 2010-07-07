@@ -4,7 +4,7 @@
 
   signedimp.cryptobase:  basic pure-python crypto primitives.
 
-This package contains pure-python implementations of the crypto primatives
+This package contains pure-python implementations of the crypto primitives
 necessary for bootstrapping a signed import setup.  The MD5 and SHA1 modules
 are taken from the PyPy project; the RSA-related modules are original.
 

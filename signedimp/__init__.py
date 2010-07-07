@@ -128,8 +128,14 @@ startup scripts often import common modules such as "os".  You'll either need
 to hack the frozen exe to run the signedimp bootstrapping code first, or
 securely bundle these modules into the executable itself.
 
-When I get around to it, I'll include shortcuts for hackig signed imports into
-the output for various common freezer modules.
+So far I've only worked out the necessary voodoo for py2exe; to sign a py2exe
+frozen app do the following:
+
+    key = RSAKeyWithPSS(modulus,pub_exponent,priv_exponent)
+    signedimp.tools.sign_py2exe_app("some/dir/on/sys/path",key)
+
+When I get around to it, I'll figure out and include shortcuts for other common
+freezer modules.
 
 
 Caveats
@@ -190,19 +196,19 @@ __ver_tuple__ = (__ver_major__,__ver_minor__,__ver_patch__,__ver_sub__)
 __version__ = "%d.%d.%d%s" % __ver_tuple__
 
 
-from signedimp.bootstrap import SignedImportManager, RSAKeyWithPSS, \
-                                SIGNEDIMP_HASHFILE_NAME
+
+from signedimp.bootstrap import *
 
 
-def get_bootstrap_code(indent=0):
+def get_bootstrap_code(indent=""):
     """Get sourcecode you can use for inline bootstrapping of signed imports.
 
     This function basically returns the source code for signedimp.bootstrap,
-    with some cryptographic primatives forcibly inlined as pure python, and
+    with some cryptographic primitives forcibly inlined as pure python, and
     indented to the specified level.
 
     You would use it to boostrap signed imports in the startup script of your
-    application, e.g. built a script like the following and hand it off to
+    application, e.g. build a script like the following and hand it off to
     py2exe for freezing:
 
        SCRIPT = '''
@@ -213,5 +219,18 @@ def get_bootstrap_code(indent=0):
        ''' % (signedimp.get_bootstrap_code(),)
 
     """
-    raise NotImplementedError
+    import inspect
+    def _get_source_lines(mod,indent):
+        mod = __import__(mod,fromlist=["*"])
+        src = inspect.getsource(mod)
+        for ln in src.split("\n"):
+            if "from signedimp.cryptobase." in ln:
+                lnstart = ln.find("from")
+                newindent = indent + ln[:lnstart]
+                newmod = ln.strip()[5:].split()[0]
+                for newln in _get_source_lines(newmod,newindent):
+                    yield newln
+            else:
+                yield indent + ln
+    return "\n".join(_get_source_lines("signedimp.bootstrap",indent))
 

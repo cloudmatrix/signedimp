@@ -4,19 +4,35 @@
 
   signedimp.tools:  tools for manipulating signed import datafiles
 
+
+This module provides some high-level utility functions for generating the
+signed module manifests required by signedimp.  Take a look at the following:
+
+   sign_directory(dirpath,key)
+
+   sign_zipfile(zippath,key)
+
+   sign_py2exe_app(appdirpath,key)
+
 """
 
 import os
+import sys
 import imp
 import base64
 import zipfile
+import marshal
+import struct
 
+import signedimp
 from signedimp.crypto.sha1 import sha1
 from signedimp.crypto.md5 import md5
-from signedimp.bootstrap import SIGNEDIMP_HASHFILE_NAME
+
+if sys.platform == "win32":
+    from signedimp import winres
 
 
-def sign_directory(path,key,hash="sha1",outfile=SIGNEDIMP_HASHFILE_NAME):
+def sign_directory(path,key,hash="sha1",outfile=signedimp.HASHFILE_NAME):
     """Sign all the modules found in the given directory.
 
     This function walks the given directory looking for python modules, and
@@ -35,7 +51,7 @@ def sign_directory(path,key,hash="sha1",outfile=SIGNEDIMP_HASHFILE_NAME):
                     if dirnm == path and filenm == outfile:
                         continue
                 yield os.path.join(dirnm,filenm)
-    hashdata = hash_files(path,files())
+    hashdata = hash_files(path,files(),hash=hash)
     sig = key.sign(hashdata)
     sig = base64.b64encode(sig)
     #  If the file already exists, try to add our signature to it.
@@ -67,7 +83,7 @@ def sign_directory(path,key,hash="sha1",outfile=SIGNEDIMP_HASHFILE_NAME):
             outfile.close()
 
 
-def sign_zipfile(file,key,hash="sha1",outfile=SIGNEDIMP_HASHFILE_NAME):
+def sign_zipfile(file,key,hash="sha1",outfile=signedimp.HASHFILE_NAME):
     """Sign all the modules found in the given zipfile.
 
     This function walks the given zipfile looking for python modules, and
@@ -106,7 +122,7 @@ def sign_zipfile(file,key,hash="sha1",outfile=SIGNEDIMP_HASHFILE_NAME):
             if isinstance(outfile,basestring) and nm == outfile:
                 continue
             yield nm
-    hashdata = hash_files("",files(),read=infile.read,os=os())
+    hashdata = hash_files("",files(),hash=hash,read=infile.read,os=os())
     sig = base64.b64encode(key.sign(hashdata))
     #  If the file already exists, try to add our signature to it.
     #  If the data has changed, the old data is silently thrown away.
@@ -139,6 +155,57 @@ def sign_zipfile(file,key,hash="sha1",outfile=SIGNEDIMP_HASHFILE_NAME):
             outfile.write(sig2)
         outfile.write("\n")
         outfile.write(hashdata)
+
+
+def sign_py2exe_app(appdir,key,hash="sha1"):
+    #  Sign the appdir, and any potential zipfiles.
+    sign_directory(appdir,key,hash=hash)
+    for nm in os.listdir(appdir):
+        if nm.endswith(".exe") or nm.endswith(".zip"):
+            try:
+                sign_zipfile(os.path.join(appdir,nm),key,hash=hash)
+            except zipfile.BadZipFile:
+                pass
+    #  Hack the bootstrap code into the start of the script to be run.
+    #  We do it as a function due to some strange namespace issues I
+    #  don't quite understand.
+    bscode =  """
+def _signedimp_init():
+    %s
+    class _signedimp_exports:
+        pass
+    for nm in __all__:
+        setattr(_signedimp_exports,nm,staticmethod(locals()[nm]))
+    return _signedimp_exports
+
+signedimp = _signedimp_init()
+k = signedimp.%s
+signedimp.SignedImportManager([k]).install()
+""" % (signedimp.get_bootstrap_code(indent="    "),repr(key.get_public_key()),)
+    bscode = compile(bscode,"__main__.py","exec")
+    for nm in os.listdir(appdir):
+        if nm.endswith(".exe"):
+            exepath = os.path.join(appdir,nm)
+            try:
+                appcode = winres.load_resource(exepath,u"PYTHONSCRIPT",1,0)
+            except EnvironmentError:
+                continue
+            sz = struct.calcsize("iiii")
+            (magic,optmz,bfrd,codelen) = struct.unpack("iiii",appcode[:sz])
+            assert magic == 0x78563412
+            codelist = appcode[sz:-1]
+            for i,c in enumerate(codelist):
+                if c == "\x00":
+                    relarcname = codelist[:i]
+                    codelist = codelist[i+1:-1]
+                    break
+            codelist = marshal.loads(codelist)
+            codelist.insert(0,bscode)
+            codelist = marshal.dumps(codelist)
+            appcode = struct.pack("iiii",magic,optmz,bfrd,len(codelist)) \
+                      + relarcname + "\x00" + codelist + "\x00\x00"
+            winres.add_resource(exepath,appcode,u"PYTHONSCRIPT",1,0)
+
 
 
 def _is_in_package(root,path,os=os):

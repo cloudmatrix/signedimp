@@ -4,9 +4,12 @@ import unittest
 import os
 import random
 
-from signedimp.bootstrap import _signedimp_b64decode as bs_b64decode
-import base64
+# Careful, we must import this before importing base64, it it will pick
+# up on the availability of the builtin version and use it directly.
+from signedimp.bootstrap import _signedimp_util
+bs_b64decode = _signedimp_util.b64decode
 
+import base64
 
 class TestBootstrap(unittest.TestCase):
 
@@ -14,5 +17,5 @@ class TestBootstrap(unittest.TestCase):
         for i in xrange(100):
             ln = random.randint(1,100)
             bs = os.urandom(ln)
-            self.assertEquals(bs_b64decode(base64.b64encode(bs)),bs)
+            self.assertEquals(_signedimp_util.b64decode(base64.b64encode(bs)),bs)
 

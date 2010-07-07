@@ -3,3 +3,5 @@
 *~
 .*.sw*
 MANIFEST
+build
+dist

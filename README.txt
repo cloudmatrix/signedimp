@@ -126,8 +126,14 @@ startup scripts often import common modules such as "os".  You'll either need
 to hack the frozen exe to run the signedimp bootstrapping code first, or
 securely bundle these modules into the executable itself.
 
-When I get around to it, I'll include shortcuts for hackig signed imports into
-the output for various common freezer modules.
+So far I've only worked out the necessary voodoo for py2exe; to sign a py2exe
+frozen app do the following:
+
+    key = RSAKeyWithPSS(modulus,pub_exponent,priv_exponent)
+    signedimp.tools.sign_py2exe_app("some/dir/on/sys/path",key)
+
+When I get around to it, I'll figure out and include shortcuts for other common
+freezer modules.
 
 
 Caveats
