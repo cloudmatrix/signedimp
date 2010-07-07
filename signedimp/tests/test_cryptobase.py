@@ -34,6 +34,10 @@ class TestCryptoBase(unittest.TestCase):
             self.assertEquals(l2b(b2l(bs)),bs)
             self.assertEquals(l2b(b2l("\x00\x00"+bs)),bs)
             self.assertEquals(b2l(bs),Crypto.Util.number.bytes_to_long(bs))
+        for i in xrange(100):
+            n = random.randint(1,1000000000000)
+            self.assertEquals(b2l(l2b(ln)),ln)
+            self.assertEquals(l2b(n),Crypto.Util.number.long_to_bytes(n))
 
     def test_hashes(self):
         HASHES = ((self.md5.md5,hashlib.md5),(self.sha1.sha1,hashlib.sha1))

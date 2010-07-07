@@ -157,6 +157,7 @@ class SignedHashDatabase(object):
                 break
             try:
                 fingerprint,signature = ln.split()
+                signature = _signedimp_b64decode(signature)
             except ValueError:
                 return
             for k in self.valid_keys:
@@ -612,7 +613,12 @@ def _signedimp_make_cryptofuncs():
     """
     global _signedimp_md5
     global _signedimp_sha1
+    global _signedimp_b64decode
     global RSAKeyWithPSS
+    if _signedimp_mod_available("base64"):
+        import base64
+        def _signedimp_b64decode(data):
+            return base64.b64decode(data)
     if _signedimp_mod_available("signedimp.crypto"):
         # Awesome, we can use our crypto primatives directly
         import signedimp.crypto.md5
@@ -694,4 +700,55 @@ def RSAKeyWithPSS(modulus,pub_exponent):
     return _signedimp_RSAKeyWithPSS(modulus,pub_exponent)
 
 _signedimp_make_cryptofuncs()
+
+
+def _signedimp_b64unquad(quad):
+    """Decode a single base64-encoded quad of bytes."""
+    n = 0
+    for c in quad:
+        n = n << 6
+        if "A" <= c <= "Z":
+            n += ord(c) - 65
+        elif "a" <= c <= "z":
+            n += ord(c) - 71
+        elif "0" <= c <= "9":
+            n += ord(c) + 4
+        elif c == "+":
+            n += 62
+        elif c == "/":
+            n += 63
+        else:
+            raise ValueError
+    bytes = []
+    while n > 0:
+        bytes.append(chr(n & 0x000000FF))
+        bytes.append(chr((n & 0x0000FF00) >> 8))
+        bytes.append(chr((n & 0x00FF0000) >> 16))
+        bytes.append(chr((n & 0xFF000000) >> 24))
+        n = n >> 32
+    bytes = "".join(reversed(bytes))
+    for i in xrange(len(bytes)):
+        if bytes[i] != "\x00":
+            return bytes[i:]
+
+
+def _signedimp_b64decode(data):
+    output = []
+    if len(data) % 4 != 0:
+        raise ValueError("b64 data must be multiple of 4 in length")
+    for i in xrange(0,len(data),4):
+        quad = data[i:i+4]
+        if quad.endswith("=="):
+            quad = quad[:2]+"AA"
+            trim = 2
+        elif quad.endswith("="):
+            quad = quad[:3]+"A"
+            trim = 1
+        else:
+            trim = 0
+        if trim:
+            output.append(_signedimp_b64unquad(quad)[:-1*trim])
+        else:
+            output.append(_signedimp_b64unquad(quad))
+    return "".join(output)
 
