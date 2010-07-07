@@ -28,10 +28,10 @@ signed manifest files before being allow to proceed.  If a module cannot be
 validated then the import will fail.
 
 Validation is performed in coopertion with the existing import machinery,
-using the optional loader methods get_code() and get_data().  It works with
-at least the default import machinery and the zipimport module; if you have
-custom import hooks that don't offer these optional methods that will not
-be usabled with signedimp.
+using the optional loader method get_data().  It works with at least the 
+default import machinery and the zipimport module; if you have custom import
+hooks that don't offer this method, or that don't conform to the standard
+file layout for python imports, they will will not be usabled with signedimp.
 
 
 Manifests
@@ -80,6 +80,9 @@ imports using this module, how do we verify the import of this module itself?
 To be of any use, it must be incorporated as part of a signed executable.
 There are several options:
 
+   * included signedimp and sub-modules as "frozen" modules in the Python
+     interpreter itself, by mucking with the PyImport_FrozenModules pointer.
+
    * include signedimp in a zipfile appended to the executable, and put the
      executable itself as the first item on sys.path.  Something like this::
 
@@ -116,6 +119,15 @@ manager so that it knows they are safe to use.
 
 Of course, the first thing the import manager does once installed is try to
 import these modules and speed up imports for the rest of the process.
+
+A word of caution - most freezer programs (e.g. py2exe or bbfreeze) execute
+their own startup scripts before running the user-supplied script, and these
+startup scripts often import common modules such as "os".  You'll either need
+to hack the frozen exe to run the signedimp bootstrapping code first, or
+securely bundle these modules into the executable itself.
+
+When I get around to it, I'll include shortcuts for hackig signed imports into
+the output for various common freezer modules.
 
 
 Caveats

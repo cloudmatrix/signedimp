@@ -4,11 +4,15 @@
 
 """
 
+import os
 from signedimp.cryptobase.rsa import RSAKey, RSAKeyWithPSS, math
+from signedimp.crypto.pss import PSS
 
 from math import ceil
 from Crypto.Util.number import bytes_to_long, long_to_bytes
 from Crypto.Util.number import size as num_bits
+from Crypto.PublicKey import RSA as _RSA
+
 
 class math(math):
     bytes_to_long = staticmethod(bytes_to_long)
@@ -27,9 +31,15 @@ class RSAKey(RSAKey):
 
     _math = math
 
+    @classmethod
+    def generate(cls,size=2048,randbytes=os.urandom):
+        k = _RSA.generate(size,randbytes)
+        return cls(k.n,k.e,k.d)
 
-class RSAKeyWithPSS(RSAKeyWithPSS):
+
+class RSAKeyWithPSS(RSAKeyWithPSS,RSAKey):
     """Public key using RSS with PSS signature padding scheme."""
 
     _math = math
+    _PSS = PSS
 

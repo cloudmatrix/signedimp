@@ -15,7 +15,7 @@ obtain the necessary code.
 """
 
 
-SIGNEDIMP_HASHFILE_NAME = "signedimp-manifest"
+SIGNEDIMP_HASHFILE_NAME = "signedimp-manifest.txt"
 
 
 class IntegrityCheckError(ValueError):
@@ -54,8 +54,15 @@ if not _signedimp_mod_available("imp"):
     err = "'imp' module is not safely available, integrity checks impossible"
     raise IntegrityCheckMissing(err)
 import imp
-SIGNEDIMP_DYLIB_SUFFIXES = [suffix for (suffix,_,typ) in imp.get_suffixes() \
-                                   if typ == imp.C_EXTENSION]
+
+
+#  Get the "marshal" module so we can treat code objects as bytes.
+#  It must be builtin or this whole exercise is pointless.
+if not _signedimp_mod_available("marshal"):
+    err = "'marshal' module is not safely available, " \
+          "integrity checks impossible"
+    raise IntegrityCheckMissing(err)
+import marshal
 
 
 #  Get a minimal simulation of the "os" module.
@@ -91,6 +98,96 @@ def _signedimp_make_os_module():
 os = _signedimp_make_os_module()
 
 
+class SignedHashDatabase(object):
+    """An in-memory database of verified hash data.
+
+    This class is used to validate generic data blobs against a signed database
+    of their expected hash values.
+    """
+
+    def __init__(self,valid_keys=[],hashdata=None):
+        self.valid_keys = valid_keys
+        self.hashes = {}
+        if hashdara is not None:
+            self.parse_hash_data(hashdata)
+
+    def validate(self,typ,name,data):
+        """Validate data of the given type against our hash database."""
+        try:
+            hashes = self.hashes[(typ,name)]
+        except KeyError:
+            raise IntegrityCheckMissing("no valid hash for "+name)
+        for (htyp,hval) in hashes:
+            if not self._check_hash(htyp,hval,data):
+                raise IntegrityCheckFailed("invalid hash for "+fullname)
+
+    def _check_hash(self,type,hash,data):
+        if type == "md5":
+            return _signedimp_md5(data) == hash
+        if type == "sha1":
+            return _signedimp_sha1(data) == hash
+        raise ValueError("unknown hash type: %s" % (type,))
+
+    def parse_hash_data(self,hashdata):
+        """Load hash data from the given string.
+
+        The format is a simple text file where the initial lines give a key
+        fingerprint and signature, then there's a blank line and a hash type
+        identifier, then each remaining line is a hash db entry.  Example:
+
+          ----
+          key1fingerprint signature1
+          key2fingerprint signature2
+
+          md5
+          m 76f3f13442c26fd4f1c709c7b03c6b76 os
+          m f56dbc5ee6774e857a7ef07accdbd19b hashlib
+          d 43b74fc5d2acb6b4e417f4feff06dd81 some/data/file.txt
+          ----
+
+        """
+        offset = 0
+        signatures = []
+        lines = hashdata.split("\n")
+        #  Find all valid keys that have provided a signature.
+        for ln in lines:
+            offset += len(ln)
+            ln = ln.strip()
+            if not ln:
+                break
+            try:
+                fingerprint,signature = ln.split()
+            except ValueError:
+                return
+            for k in self.valid_keys:
+                if k.fingerprint() == fingerprint:
+                    signatures.append((k,signature))
+        if not signatures:
+            return
+        #  Check the signature for each key
+        signeddata = hashdata[offset:]
+        for (k,sig) in signatures:
+            if not k.verify(signeddata,sig):
+                err = "bad signature from " + fingerprint
+                raise IntegrityCheckFailed(err)
+        #  Next is the hash type identifier
+        try:
+            htyp = lines.next().strip()
+        except StopIteration:
+            return
+        #  Now we can load each hash line
+        for ln in lines:
+            try:
+                typ,hval,name = ln.strip().split(None,2)
+            except ValueError:
+                continue
+            try:
+                hashes = self.hashes[(typ,name)]
+            except KeyError:
+                self.hashes[(typ,name)] = hashes = []
+            hashes.append((htyp,hval))
+
+
 
 class SignedImportManager(object):
     """Meta-path import hook for managing signed imports.
@@ -105,7 +202,7 @@ class SignedImportManager(object):
 
     def __init__(self,valid_keys=[]):
         self.valid_keys = [k for k in valid_keys]
-        self.hashdata = {}
+        self.hashdb = SignedHashDatabase(self.valid_keys)
 
     def install(self):
         """Install this manager into the process import machinery."""
@@ -243,13 +340,13 @@ class SignedLoader:
     def __init__(self,manager,loader):
         self.manager = manager
         self.loader = loader
-        self.hashdata = {}
+        self.hashdb = SignedHashDatabase(manager.valid_keys)
         try:
             hashdata = self.loader.get_data(SIGNEDIMP_HASHFILE_NAME)
         except EnvironmentError:
             pass
         else:
-            self._load_hashdata(hashdata)
+            self.hashdb.parse_hash_data(hashdata)
 
     def load_module(self,fullname):
         """Load the specific module, checking its integrity first."""
@@ -258,10 +355,8 @@ class SignedLoader:
         except KeyError:
             pass
         if fullname not in sys.builtin_module_names:
-            # TODO: remove this hack
-            if not  fullname.startswith("signedimp"):
-                data = self._get_module_data(fullname)
-                self.validate_module(fullname,data)
+            data = self._get_module_data(fullname)
+            self.validate_module(fullname,data)
         return self.loader.load_module(fullname)
 
     def get_data(self,path):
@@ -284,120 +379,74 @@ class SignedLoader:
 
     def validate_module(self,fullname,data):
         """Validate the given module data against our signature database."""
-        self._validate(fullname,"m",data)
+        self._validate("m",fullname,data)
 
     def validate_data(self,path,data):
         """Validate the given extra data against our signature database."""
-        self._validate(fullname,"d",data)
+        self._validate("d",fullname,data)
 
-    def _validate(self,fullname,typ,data):
-        """Validate data of the given type against our signature database."""
-        hashes = []
-        try:
-            hashes.extend(self.hashdata[typ][fullname])
-        except KeyError:
-            pass
-        try:
-            hashes.extend(self.manager.hashdata[typ][fullname])
-        except KeyError:
-            pass
-        if not hashes:
-            raise IntegrityCheckMissing("no valid hash for "+fullname)
-        for (hasher,hashval) in hashes:
-            if hasher(data) != hashval:
-                raise IntegrityCheckFailed("invalid hash for "+fullname)
+    def _validate(self,typ,name,data):
+        """Validate date for the given type specifier and name.
 
-    def _load_hashdata(self,hashdata):
-        """Load hash data from a signed file.
-
-        The file is a simple text file where the first line is the fingerprint
-        of the public key, the second is the signature for the rest of the
-        data, the third is a hash type indicator and all other lines are of
-        the form "typ hash name".
+        This performs validate against the local database and the main manager
+        database.  If it's not found in either location, IntegrityCheckMissing
+        error is raised.
         """
         try:
-            fingerprint,signature,data = hashdata.split("\n",2)
-            fingerprint = fingerprint.strip()
-            signature = signature.strip()
-        except ValueError:
-            return
-        #  Validate the signature, choke if invalid.
-        #  If the key is not known, ignore this data.
-        for k in self.manager.valid_keys:
-            if k.fingerprint() == fingerprint:
-                if k.verify(data,signature):
-                    break
+            self.hashdb.validate(typ,name,data)
+        except IntegrityCheckMissing:
+            self.manager.hashdb.validate(typ,name,data)
         else:
-            return
-        #  Obtain a hasher callable
-        try:
-            hashtype,hashlines = data.split("\n",2)
-            hashtype = hashtype.strip()
-        except ValueError:
-            return
-        if hashtype == "md5":
-            hasher = _signedimp_md5
-        elif hashtype == "sha1":
-            hasher = _signedimp_sha1
-        else:
-            return
-        #  Now we can load each of the hash lines:
-        for ln in hashlines.split("\n"):
             try:
-                typ,hashval,name = ln.strip().split(None,2)
-            except ValueError:
-                continue
-            if typ not in self.hashdata:
-                self.hashdata[typ] = {}
-            if name not in self.hashdata[typ]:
-                self.hashdata[typ][name] = []
-            self.hashdata[typ][name].append(hashval)
+                self.manager.hashdb.validate(typ,fname,data)
+            except IntegrityCheckMissing:
+                pass
 
     def _get_module_data(self,fullname):
         """Get the raw data for the given module.
 
         This is the data that must be included in a valid signature.  It's
-        the source if available, the bytecode if available, and the raw file
-        data otherwise.
+        one of the following, searched for in order:
+
+            * the raw data from the compiled bytecode file
+            * the source code from the module source file
+            * the raw data from the object file
+
+        Note that this is a different order to the way imports are searched;
+        we need to check the bytecode if it's present because that will be
+        used in preference to the source.  If the module is found as both
+        a bytecode file and an object file, an error is raised.
+
+        This assumes that the loader has files laid out in the same scheme
+        as the default import machinery, so we can convert a module name to
+        a path and read the file using loader.get_data().
         """
-        try:
-            data = self.loader.get_source(fullname)
-        except AttributeError:
-            raise
-            raise IntegrityCheckMissing("loader has no get_source method")
-        except ImportError:
-            pass
-        else:
-            if data is not None:
-                return data
-        try:
-            data = self.loader.get_code(fullname)
-        except AttributeError:
-            raise IntegrityCheckMissing("loader has no get_code method")
-        except ImportError:
-            pass
-        else:
-            if data is not None:
-                return data
-        path = fullname.replace(".","/")
-        for suffix in SIGNEDIMP_DYLIB_SUFFIXES:
-            fullpath = path + suffix
-            try:
-                return self.loader.get_data(fullpath)
-            except AttributeError:
-                raise IntegrityCheckMissing("loader has no get_data method")
-            except IOError:
-                pass
-        path = fullname.replace(".","\\")
-        for suffix in SIGNEDIMP_DYLIB_SUFFIXES:
-            fullpath = path + suffix
-            try:
-                return self.loader.get_data(fullpath)
-            except AttributeError:
-                raise IntegrityCheckMissing("loader has no get_data method")
-            except IOError:
-                pass
-        raise IntegrityCheckMissing("could not get raw module data")
+        if self.loader.is_package(fullname):
+            return self._get_module_data(fullname+".__init__")
+        found_data = None
+        found_types = []
+        for codetype in (imp.PY_COMPILED,imp.PY_SOURCE,imp.C_EXTENSION):
+            for (suffix,_,typ) in imp.get_suffixes():
+                if typ != codetype:
+                    continue
+                for sep in ("/","\\"):
+                    path = fullname.replace(".",sep) + suffix
+                    try:
+                        data = self.loader.get_data(fullpath)
+                    except AttributeError:
+                        err = "loader has no get_data method"
+                        raise IntegrityCheckMissing(err)
+                    except IOError:
+                        pass
+                    else:
+                        if found_data is None:
+                            found_data = data
+                        found_types.append(typ)
+        if len(found_types) > 1:
+            if found_types != [imp.PY_COMPILED,imp.PY_SOURCE]:
+                err = "duplicate code found for " + fullname
+                raise IntegrityCheckFailed(err)
+        return data
 
 
 
@@ -482,8 +531,14 @@ class _DefaultImporter:
         sys.modules[fullname] = mod
         return mod
 
+    def is_package(self,fullname):
+        file,pathname,description = self._get_module_info(fullname)
+        file.close()
+        return (description[2] == imp.PKG_DIRECTORY)
+
     def get_source(self,fullname):
         file,pathname,description = self._get_module_info(fullname)
+        file.close()
         if description[2] == imp.PKG_DIRECTORY:
             for (suffix,_,typ) in imp.get_suffixes():
                 if typ != imp.PY_SOURCE:
@@ -496,12 +551,23 @@ class _DefaultImporter:
                     finally:
                         f.close()
             return self.get_source(fullname+".__init__")
-        if description[2] != imp.PY_SOURCE:
-            return None
-        return file.read()
+        else:
+            pathbase = pathname[:-1*len(description[0])]
+            for (suffix,_,typ) in imp.get_suffixes():
+                if typ != imp.PY_SOURCE:
+                    continue
+                sourcefile = pathbase+suffix
+                if os.path.exists(sourcefile):
+                    f = open(sourcefile,"rU")
+                    try:
+                        return f.read()
+                    finally:
+                        f.close()
+        return None
 
     def get_code(self,fullname):
         file,pathname,description = self._get_module_info(fullname)
+        file.close()
         if description[2] == imp.PKG_DIRECTORY:
             for (suffix,_,typ) in imp.get_suffixes():
                 if typ != imp.PY_COMPILED:
@@ -510,13 +576,29 @@ class _DefaultImporter:
                 if os.path.exists(initfile):
                     f = open(initfile,"rb")
                     try:
-                        return f.read()
+                        f.seek(8)
+                        return marshal.load(f)
                     finally:
                         f.close()
-            return self.get_source(fullname+".__init__")
-        if description[2] != imp.PY_COMPILED:
-            return None
-        return file.read()
+            return self.get_code(fullname+".__init__")
+        else:
+            pathbase = pathname[:-1*len(description[0])]
+            for (suffix,_,typ) in imp.get_suffixes():
+                if typ != imp.PY_COMPILED:
+                    continue
+                codefile = pathbase+suffix
+                if os.path.exists(codefile):
+                    f = open(codefile,"rb")
+                    try:
+                        f.seek(8)
+                        return marshal.load(f)
+                    finally:
+                        f.close()
+            source = self.get_source(fullname)
+            if source is not None:
+                return compile(source,pathname,"exec")
+        return None
+
         
     def get_data(self,path):
         return open(os.path.join(self.path,path),"rb").read()
@@ -556,8 +638,17 @@ def _signedimp_make_cryptofuncs():
         def _signedimp_sha1(data):
             return _hashlib.openssl_sha1(data).hexdigest()
     else:
-        #  Bollocks, we have to leave them as pure-python implementations
-        pass
+        if _signedimp_mod_available("_md5"):
+            #  OK, at least md5 is builtin
+            import _md5
+            def _signedimp_md5(data):
+                return _md5.new(data).hexdigest()
+        if _signedimp_mod_available("_sha"):
+            #  OK, at least sha1 is builtin
+            import _sha
+            def _signedimp_sha1(data):
+                return _sha.new(data).hexdigest()
+        #  If all else fails, we've left them as pure-python implementations
 
 _signedimp_md5type = None
 def _signedimp_md5(data):

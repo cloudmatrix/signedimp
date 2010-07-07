@@ -55,6 +55,17 @@ class RSAKey(object):
         hash = sha1("RSAKey %s %s" % (self.modulus,self.pub_exponent,))
         return hash.hexdigest()
 
+    def get_public_key(self):
+        return self.__class__(self.modulus,self.pub_exponent)
+
+    def __repr__(self):
+        if self.priv_exponent is not None:
+            return "%s(%s,%s,%s)" % (self.__class__.__name__,self.modulus,
+                                     self.pub_exponent,self.priv_exponent,)
+        else:
+            return "%s(%s,%s)" % (self.__class__.__name__,self.modulus,
+                                  self.pub_exponent,)
+
     def encrypt(self,message):
         m = self._math.bytes_to_long(message)
         return self._math.long_to_bytes(pow(m,self.pub_exponent,self.modulus))
@@ -75,9 +86,11 @@ class RSAKey(object):
 class RSAKeyWithPSS(RSAKey):
     """Public key using RSS with PSS signature padding scheme."""
 
+    _PSS = PSS
+
     def __init__(self,modulus,pub_exponent,priv_exponent=None,randbytes=None):
         super(RSAKeyWithPSS,self).__init__(modulus,pub_exponent,priv_exponent)
-        self._pss = PSS(self.size/8,randbytes=randbytes)
+        self._pss = self._PSS(self.size/8,randbytes=randbytes)
 
     def fingerprint(self):
         hash = sha1("RSAKeyWithPSS %s %s" % (self.modulus,self.pub_exponent,))
