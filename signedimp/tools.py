@@ -34,7 +34,8 @@ def sign_directory(path,key,hash="sha1",outfile=SIGNEDIMP_HASHFILE_NAME):
                         continue
                 yield os.path.join(dirnm,filenm)
     hashdata = hash_files(path,files())
-    sig = base64.b64encode(key.sign(hashdata))
+    sig = key.sign(hashdata)
+    sig = base64.b64encode(sig)
     #  If the file already exists, try to add our signature to it.
     #  If the data has changed, the old data is silently thrown away.
     if outfile_was_string:
@@ -199,22 +200,20 @@ def hash_files(path,files=None,hash="sha1",read=_read_file,os=os):
             basenm = _get_module_basename(filepath,os=os)
             if basenm is None:
                 #  Just sign it as a datafile
-                hashname = filepath[prefixlen+1:].replace(os.sep,"/")
+                hashname = filepath[prefixlen:].replace(os.sep,"/")
                 datahashes[hashname] = hash(read(filepath)).hexdigest()
             else:
-                #  We want to preferentially sign .pyc files over .py,
-                #  and either over a c extension.
+                #  We sign the concatentation of all files in the order
+                #  they are found by the import machinery.
                 modname = basenm[prefixlen:].replace(os.sep,".")
-                for ctyp in (imp.PY_COMPILED,imp.PY_SOURCE,imp.C_EXTENSION):
-                    if modname in modhashes:
-                        break
-                    for (suffix,_,typ) in imp.get_suffixes():
-                        if typ != ctyp:
-                            continue
+                if modname not in modhashes:
+                    moddata = []
+                    for (suffix,_,_) in imp.get_suffixes():
                         if os.path.exists(basenm+suffix):
                             modpath = basenm+suffix
-                            modhashes[modname] = hash(read(modpath)).hexdigest()
-                            break
+                            moddata.append(read(modpath))
+                    moddata = "\x00".join(moddata)
+                    modhashes[modname] = hash(moddata).hexdigest()
     for nm,hash in modhashes.iteritems():
         output.append("m %s %s" % (hash,nm))
     for nm,hash in datahashes.iteritems():

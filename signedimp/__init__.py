@@ -180,7 +180,8 @@ You have been warned.
 
 """
 
-from signedimp.bootstrap import SignedImportManager, RSAKeyWithPSS
+from signedimp.bootstrap import SignedImportManager, RSAKeyWithPSS, \
+                                SIGNEDIMP_HASHFILE_NAME
 
 
 def get_bootstrap_code(indent=0):

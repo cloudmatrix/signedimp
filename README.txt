@@ -50,8 +50,8 @@ from the hash data by a blank line.  It then contains a hash type identifier
 and one line for each module hash.  Here's a short example::
 
       ----
-      key1fingerprint signature1
-      key2fingerprint signature2
+      key1fingerprint b64-encoded-signature1
+      key2fingerprint b64-encoded-signature2
 
       md5
       m 76f3f13442c26fd4f1c709c7b03c6b76 os
