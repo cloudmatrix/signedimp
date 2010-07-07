@@ -4,8 +4,10 @@
 #
 #     http://codespeak.net/svn/pypy/dist/pypy/lib/sha.py
 #
-#  It has been modified to not use any additional modules but is otherwise
-#  unchanged.
+#  It has been slightly modified to:
+#      * not import any additional modules
+#      * accept data to hash in the constructor
+#      * export "sha1" instead of "sha"
 #
 
 #!/usr/bin/env python
@@ -130,12 +132,12 @@ K = [
     0xCA62C1D6L  # (60 <= t <= 79)
     ]
 
-class sha:
+class sha1:
     "An implementation of the MD5 hash function in pure Python."
 
     digest_size = digestsize = 20
 
-    def __init__(self):
+    def __init__(self,data=None):
         "Initialisation."
         
         # Initial message length in bits(!).
@@ -148,6 +150,9 @@ class sha:
         # Call a separate init function, that can be used repeatedly
         # to start from scratch on the same object.
         self.init()
+
+        if data is not None:
+            self.update(data)
 
 
     def init(self):
@@ -360,7 +365,7 @@ def new(arg=None):
     If arg is present, the method call update(arg) is made.
     """
 
-    crypto = sha()
+    crypto = sha1()
     if arg:
         crypto.update(arg)
 

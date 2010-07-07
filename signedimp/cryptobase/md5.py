@@ -4,8 +4,9 @@
 #
 #     http://codespeak.net/svn/pypy/dist/pypy/lib/md5.py
 #
-#  It has been modified to not use any additional modules but is otherwise
-#  unchanged.
+#  It has been slightly modified to:
+#      * not import any additional modules
+#      * accept data to hash in the constructor
 #
 """A sample implementation of MD5 in pure Python.
 
@@ -119,7 +120,7 @@ class MD5Type:
 
     digest_size = digestsize = 16
 
-    def __init__(self):
+    def __init__(self,data=None):
         "Initialisation."
         
         # Initial message length in bits(!).
@@ -132,6 +133,9 @@ class MD5Type:
         # Call a separate init function, that can be used repeatedly
         # to start from scratch on the same object.
         self.init()
+
+        if data is not None:
+            self.update(data)
 
 
     def init(self):

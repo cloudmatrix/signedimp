@@ -4,12 +4,13 @@
 
 This module contains the minimal code necessary to bootstrap the use of signed
 imports.  It's carefully constructed not to perform any imports itself, save
-modules known to be built into the interpreter.
+modules known to be built into the interpreter or that are already loaded.
 
 To get any real security out of this, you'll need to incorporate this script
 wholesale into your main application script so that it runs before you try to
 import anything.  Don't just import this script - after all, how would you 
-verify the import of this module?
+verify the import of this module?  Use signedimp.get_bootstrap_code() to
+obtain the necessary code.
 
 """
 
@@ -18,8 +19,17 @@ SIGNEDIMP_HASHFILE_NAME = "signedimp-manifest"
 
 
 class IntegrityCheckError(ValueError):
-    """Error raised when integrity checks fail."""
+    """Error raised when integrity of a resource cannot be verified."""
     pass
+
+class IntegrityCheckFailed(IntegrityCheckError):
+    """Error raised when an integrity check is available, and fails."""
+    pass
+
+class IntegrityCheckMissing(IntegrityCheckError):
+    """Error raised when an integrity check is not available."""
+    pass
+
 
 
 def _signedimp_mod_available(modname):
@@ -42,19 +52,11 @@ import sys
 #  It must be builtin or this whole exercise is pointless.
 if not _signedimp_mod_available("imp"):
     err = "'imp' module is not safely available, integrity checks impossible"
-    raise RuntimeError(err)
+    raise IntegrityCheckMissing(err)
 import imp
-DYLIB_SUFFIXES = [suffix for (suffix,_,typ) in imp.get_suffixes() \
-                         if typ == imp.C_EXTENSION]
+SIGNEDIMP_DYLIB_SUFFIXES = [suffix for (suffix,_,typ) in imp.get_suffixes() \
+                                   if typ == imp.C_EXTENSION]
 
-#  Get the "math" module so we can implement pure-python has functions.
-#  It must be builtin or this whole exercise is pointless.
-if not _signedimp_mod_available("math"):
-    err = "'math' module is not safely available, integrity checks impossible"
-    raise RuntimeError(err)
-import imp
-DYLIB_SUFFIXES = [suffix for (suffix,_,typ) in imp.get_suffixes() \
-                         if typ == imp.C_EXTENSION]
 
 #  Get a minimal simulation of the "os" module.
 #  It must be builtin or this whole exercise is pointless.
@@ -70,7 +72,7 @@ def _signedimp_make_os_module():
         SEP = "\\"
     else:
         err = "no os modules are safely available, integrity checks impossible"
-        raise RuntimeError(err)
+        raise IntegrityCheckMissing(err)
     class os:
         class path:
             @staticmethod
@@ -90,21 +92,7 @@ os = _signedimp_make_os_module()
 
 
 
-class PublicKey:
-    """Generic base class for verifying sigs with a public key."""
-
-    def verify(self,data,signature):
-        pass
-
-    def fingerprint(self):
-        return "XXX"
-
-    def on_import_enabled(self):
-        pass
-
-
-
-class SignedImportManager:
+class SignedImportManager(object):
     """Meta-path import hook for managing signed imports.
 
     This is a PEP-302-compliant meta-path hook which wraps the standard import
@@ -123,8 +111,15 @@ class SignedImportManager:
         """Install this manager into the process import machinery."""
         if self not in sys.meta_path:
             sys.meta_path.insert(0,self)
-        for k in self.valid_keys:
-            k.on_import_enabled()
+        #  Try to speed things up by loading faster crypto primatives.
+        for mod in ("signedimp.crypto",):
+            try:
+                loader = self.find_module(mod)
+                if loader is not None:
+                    loader.load_module(mod)
+            except ImportError:
+                pass
+        _signedimp_make_cryptofuncs()
 
     def pretend_sign_directory(self,path):
         """Add valid hashes for each module found in the given dir.
@@ -249,17 +244,12 @@ class SignedLoader:
         self.manager = manager
         self.loader = loader
         self.hashdata = {}
-        hashfiles = [SIGNEDIMP_HASHFILE_NAME+".txt",]
-        for key in self.manager.valid_keys:
-            filenm = SIGNEDIMP_HASHFILE_NAME+"."+key.fingerprint()+".txt"
-            hashfiles.append(filenm)
-        for filenm in hashfiles:
-            try:
-                hashdata = self.loader.get_data(filenm)
-            except EnvironmentError:
-                pass
-            else:
-                self._load_hashdata(hashdata)
+        try:
+            hashdata = self.loader.get_data(SIGNEDIMP_HASHFILE_NAME)
+        except EnvironmentError:
+            pass
+        else:
+            self._load_hashdata(hashdata)
 
     def load_module(self,fullname):
         """Load the specific module, checking its integrity first."""
@@ -311,11 +301,11 @@ class SignedLoader:
             hashes.extend(self.manager.hashdata[typ][fullname])
         except KeyError:
             pass
+        if not hashes:
+            raise IntegrityCheckMissing("no valid hash for "+fullname)
         for (hasher,hashval) in hashes:
             if hasher(data) != hashval:
-                raise IntegrityCheckError("invalid hash for "+fullname)
-        if not hashes:
-            raise IntegrityCheckError("no valid hash for "+fullname)
+                raise IntegrityCheckFailed("invalid hash for "+fullname)
 
     def _load_hashdata(self,hashdata):
         """Load hash data from a signed file.
@@ -335,8 +325,8 @@ class SignedLoader:
         #  If the key is not known, ignore this data.
         for k in self.manager.valid_keys:
             if k.fingerprint() == fingerprint:
-                k.verify(data,signature)
-                break
+                if k.verify(data,signature):
+                    break
         else:
             return
         #  Obtain a hasher callable
@@ -374,7 +364,7 @@ class SignedLoader:
             data = self.loader.get_source(fullname)
         except AttributeError:
             raise
-            raise IntegrityCheckError("loader has no get_source method")
+            raise IntegrityCheckMissing("loader has no get_source method")
         except ImportError:
             pass
         else:
@@ -383,31 +373,31 @@ class SignedLoader:
         try:
             data = self.loader.get_code(fullname)
         except AttributeError:
-            raise IntegrityCheckError("loader has no get_code method")
+            raise IntegrityCheckMissing("loader has no get_code method")
         except ImportError:
             pass
         else:
             if data is not None:
                 return data
         path = fullname.replace(".","/")
-        for suffix in DYLIB_SUFFIXES:
+        for suffix in SIGNEDIMP_DYLIB_SUFFIXES:
             fullpath = path + suffix
             try:
                 return self.loader.get_data(fullpath)
             except AttributeError:
-                raise IntegrityCheckError("loader has no get_data method")
+                raise IntegrityCheckMissing("loader has no get_data method")
             except IOError:
                 pass
         path = fullname.replace(".","\\")
-        for suffix in DYLIB_SUFFIXES:
+        for suffix in SIGNEDIMP_DYLIB_SUFFIXES:
             fullpath = path + suffix
             try:
                 return self.loader.get_data(fullpath)
             except AttributeError:
-                raise IntegrityCheckError("loader has no get_data method")
+                raise IntegrityCheckMissing("loader has no get_data method")
             except IOError:
                 pass
-        raise IntegrityCheckError("could not get raw module data")
+        raise IntegrityCheckMissing("could not get raw module data")
 
 
 
@@ -532,7 +522,7 @@ class _DefaultImporter:
         return open(os.path.join(self.path,path),"rb").read()
 
 
-def _signedimp_make_hashfuncs():
+def _signedimp_make_cryptofuncs():
     """Make the best versions of hashfuncs we can manage.
 
     This attempts to replace the default pure-python hash functions with
@@ -540,22 +530,33 @@ def _signedimp_make_hashfuncs():
     """
     global _signedimp_md5
     global _signedimp_sha1
-    if _signedimp_mod_available("hashlib"):
-        # Awesome, we can use hashlib directly
+    global RSAKeyWithPSS
+    if _signedimp_mod_available("signedimp.crypto"):
+        # Awesome, we can use our crypto primatives directly
+        import signedimp.crypto.md5
+        import signedimp.crypto.sha1
+        import signedimp.crypto.rsa
+        def _signedimp_md5(data):
+            return signedimp.crypto.md5.md5(data).hexdigest()
+        def _signedimp_sha1(data):
+            return signedimp.crypto.sha1.sha1(data).hexdigest()
+        RSAKeyWithPSS = signedimp.crypto.rsa.RSAKeyWithPSS
+    elif _signedimp_mod_available("hashlib"):
+        # Great, we can use hashlib directly
         import hashlib
         def _signedimp_md5(data):
             return hashlib.md5(data).hexdigest()
-        def _signedimp_sja1(data):
+        def _signedimp_sha1(data):
             return hashlib.sha1(data).hexdigest()
     elif _signedimp_mod_available("_hashlib"):
-        # Awesome, we can use the exposed openssl interface directly
+        # Good, we can use the exposed openssl interface directly
         import _hashlib
         def _signedimp_md5(data):
             return _hashlib.openssl_md5(data).hexdigest()
         def _signedimp_sha1(data):
             return _hashlib.openssl_sha1(data).hexdigest()
     else:
-        #  Just leave them at their pure-python default implementations
+        #  Bollocks, we have to leave them as pure-python implementations
         pass
 
 _signedimp_md5type = None
@@ -568,7 +569,7 @@ def _signedimp_md5(data):
     """
     global _signedimp_md5type
     if not _signedimp_md5type:
-        from signedimp.purepy.md5 import MD5Type
+        from signedimp.cryptobase.md5 import MD5Type
         _signedimp_md5type = MD5Type
     hash = _signedimp_md5type()
     hash.update(data)
@@ -584,8 +585,22 @@ def _signedimp_sha1(data):
     """
     global _signedimp_sha1type
     if not _signedimp_sha1type:
-        from signedimp.purepy.sha1 import sha
-        _signedimp_sha1type = sha
+        from signedimp.cryptobase.sha1 import sha1
+        _signedimp_sha1type = sha1
     return _signedimp_sha1type(data).hexdigest()
 
-_signedimp_make_hashfuncs()
+_signedimp_RSAKeyWithPSS = None
+def RSAKeyWithPSS(modulus,pub_exponent):
+    """Pure-python implementation of RSA-PSS verification.
+
+    This is horribly slow and probably broken, but it's the best we can do
+    if PyCrypto is not available safely.
+    """
+    global _signedimp_RSAKeyWithPSS
+    if not _signedimp_RSAKeyWithPSS:
+        from signedimp.cryptobase.rsa import RSAKeyWithPSS
+        _signedimp_RSAKeyWithPSS = RSAKeyWithPSS
+    return _signedimp_RSAKeyWithPSS(modulus,pub_exponent)
+
+_signedimp_make_cryptofuncs()
+
