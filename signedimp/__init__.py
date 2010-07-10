@@ -22,7 +22,6 @@ function calls to sign your app with a new randomly-generated key::
 
     signedimp.tools.sign_py2exe_app(path_to_app_dir)
     signedimp.tools.sign_py2app_bundle(path_to_app_dir)
-    signedimp.tools.sign_cxfreeze_app(path_to_app_dir)
 
 These functions modify a frozen Python application so that it verifies the
 integrity of its modules before they are loaded, using a one-time key generated
@@ -166,13 +165,18 @@ startup scripts often import common modules such as "os".  You'll either need
 to hack the frozen exe to run the signedimp bootstrapping code first, or
 securely bundle these modules into the executable itself.
 
-So far I've only worked out the necessary voodoo for py2exe; to sign a py2exe
-frozen app do the following:
+So far I've only worked out the necessary voodoo for py2exe and py2app, and 
+there are helper functions in "signedimp.tools" that will do it for you.
 
-    signedimp.tools.sign_py2exe_app("some/dir/on/sys/path",key)
+I'm still working on the details of signing a cxfreeze executable.  It would
+be easy except that the zipimport module can't handle archives with an appended
+comment, so you can't put things in the exe as a zipfile and then sign the exe
+with authenticode.  You may need to build a custom interpreter.
 
-When I get around to it, I'll figure out and include shortcuts for other common
-freezer modules.
+I don't belive it's possible to sign a bbfreeze application without building
+a custom interpreter.  Since bbfreeze always sets sys.path to the library.zip
+and the application dir, there is no way to bundle the bootstrapping code into
+the executable itself.
 
 
 Caveats

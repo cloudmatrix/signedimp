@@ -20,7 +20,6 @@ function calls to sign your app with a new randomly-generated key::
 
     signedimp.tools.sign_py2exe_app(path_to_app_dir)
     signedimp.tools.sign_py2app_bundle(path_to_app_dir)
-    signedimp.tools.sign_cxfreeze_app(path_to_app_dir)
 
 These functions modify a frozen Python application so that it verifies the
 integrity of its modules before they are loaded, using a one-time key generated
@@ -65,8 +64,10 @@ you will need PyCrypto installed, and to do the following::
     pubkey = key.get_public_key()
 
 Take the repr() of the key and store it somewhere safe, you'll need it to sign
-files.  Take the repr() of the public key and embed it in your application 
-somehow, so it can be reconstructed when verifying imports.
+files.  The various functions in signedimp.tools will embed the public key in
+the application being signed.  If you're writing our own embedding scheme,
+take the repr() of the public key so it can be reconstrcuted when verifying
+imports.
 
 This module will eventually grow support for storing the private key in an
 encrypted file, and prompting for a password to load it.  Eventually...
@@ -162,22 +163,27 @@ startup scripts often import common modules such as "os".  You'll either need
 to hack the frozen exe to run the signedimp bootstrapping code first, or
 securely bundle these modules into the executable itself.
 
-So far I've only worked out the necessary voodoo for py2exe; to sign a py2exe
-frozen app do the following:
+So far I've only worked out the necessary voodoo for py2exe and py2app, and 
+there are helper functions in "signedimp.tools" that will do it for you.
 
-    signedimp.tools.sign_py2exe_app("some/dir/on/sys/path",key)
+I'm still working on the details of signing a cxfreeze executable.  It would
+be easy except that the zipimport module can't handle archives with an appended
+comment, so you can't put things in the exe as a zipfile and then sign the exe
+with authenticode.  You may need to build a custom interpreter.
 
-When I get around to it, I'll figure out and include shortcuts for other common
-freezer modules.
+I don't belive it's possible to sign a bbfreeze application without building
+a custom interpreter.  Since bbfreeze always sets sys.path to the library.zip
+and the application dir, there is no way to bundle the bootstrapping code into
+the executable itself.
 
 
 Caveats
 -------
 
 All of the usual crypto caveats apply here.  I'm not a security expert.  The
-system is only a safe as your private key, and as the operating system it's
-run on.  In addition, there are some specific caveats for this module based on
-the way it works.
+system is only a safe as your private key, as the signature on the main python
+executable, and as the operating system it's run on.  In addition, there are
+some specific caveats for this module based on the way it works.
 
 This module operates by wrapping the existing import machinery.  To check the
 hash of a module, it asks the appropriate loader object for the code of that
@@ -205,8 +211,8 @@ however:
      any third-party imports, to make it as easy to bootstrap as possible.
 
    * I've copied the signature scheme directly from PKCS#1 and it's broadly
-     the same as that used by keyczar etc.  This is a very well understood
-     signing protocol.
+     the same as that used by keyczar etc.  This is a very simple and well
+     understood signing protocol.
 
    * The signing code is supposed to be run offline, in a controlled setting
      with controlled inputs, so the risk of e.g. timing attacks is small.

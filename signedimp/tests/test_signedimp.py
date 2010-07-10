@@ -258,6 +258,62 @@ else:
             p = popen(os.path.join(self.distdir,"script.exe"))
             self.assertEquals(p.wait(),0)
  
+try:
+    import py2app
+except ImportError:
+    pass
+else:
+    from setuptools import setup as st_setup
+
+    class TestSignedImp_py2app(unittest.TestCase):
+
+        def setUp(self):
+            self.tdir = tempfile.mkdtemp()
+            scriptfile = os.path.join(self.tdir,"script.py")
+            self.distdir = distdir = os.path.join(self.tdir,"dist")
+            with open(scriptfile,"w") as f:
+                f.write("import signedimp.crypto.rsa\n")
+            st_setup(name="testapp",version="0.1",app=[scriptfile],
+                       options={"bdist":{"dist_dir":distdir}},
+                       script_args=["py2app"])
+
+        def tearDown(self):
+            shutil.rmtree(self.tdir)
+
+        def test_the_test(self):
+            p = popen(os.path.join(self.distdir,"testapp.app/Contents/MacOS/script"))
+            self.assertEquals(p.wait(),0)
+
+        def test_signed_app_succeeds(self):
+            signedimp.tools.sign_py2exe_app(self.distdir)
+            p = popen(os.path.join(self.distdir,"testapp.app/Contents/MacOS/script"))
+            self.assertEquals(p.wait(),0)
+
+        def test_unsigned_app_fails(self):
+            signedimp.tools.sign_py2exe_app(self.distdir)
+            zf = zipfile.ZipFile(os.path.join(self.distdir,"testapp.app/Contents/Resources/lib/python%d.%d/site-packages.zip" % sys.version_info[:2]),"a")
+            zf.writestr(signedimp.HASHFILE_NAME,"")
+            p = popen(os.path.join(self.distdir,"testapp.app/Contents/MacOS/script"))
+            self.assertNotEquals(p.wait(),0)
+
+        def test_modified_app_fails(self):
+            signedimp.tools.sign_py2exe_app(self.distdir)
+            zf = zipfile.ZipFile(os.path.join(self.distdir,"testapp.app/Contents/Resources/lib/python%d.%d/site-packages.zip" % sys.version_info[:2]),"a")
+            zf.writestr("signedimp/crypto/__init__.py","")
+            p = popen(os.path.join(self.distdir,"testapp.app/Contents/MacOS/script"))
+            self.assertNotEquals(p.wait(),0)
+
+        def test_unverified_modules_fails(self):
+            signedimp.tools.sign_py2exe_app(self.distdir,check_modules=[])
+            zf = zipfile.ZipFile(os.path.join(self.distdir,"testapp.app/Contents/Resources/lib/python%d.%d/site-packages.zip" % sys.version_info[:2]),"a")
+            zf.writestr("signedimp/crypto/__init__.py","")
+            p = popen(os.path.join(self.distdir,"testapp.app/Contents/MacOS/script"))
+            self.assertNotEquals(p.wait(),0)
+
+        def test_disabled_check_modules_succeeds(self):
+            signedimp.tools.sign_py2exe_app(self.distdir,check_modules=False)
+            p = popen(os.path.join(self.distdir,"testapp.app/Contents/MacOS/script"))
+            self.assertEquals(p.wait(),0)
 
 class TestMisc(unittest.TestCase):
 

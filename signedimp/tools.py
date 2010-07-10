@@ -13,7 +13,6 @@ a frozen application, you can use one of the following::
 
    sign_py2app_bundle(bundlepath,key)
 
-   sign_cxfreeze_app(appdirpath,key)
 
 To sign independently-distributed python modules, use one of the following::
 
@@ -200,18 +199,24 @@ def sign_zipfile(file,key,hash="sha1",outfile=signedimp.HASHFILE_NAME):
         outfile.write(hashdata)
 
 
-def sign_py2exe_app(appdir,key=None,hash="sha1",check_modules=["_memimporter"]):
+def sign_py2exe_app(appdir,key=None,hash="sha1",check_modules=None):
     """Sign the py2exe app found in the specified directory.
 
     This function signs the bundled modules found in the given py2exe app
-    directory, and modifies each executable bootstrap the signed imports
+    directory, and modifies each executable to bootstrap the signed imports
     machinery using the given key.
 
     If the "check_modules" keyword arg is specified, the bootstrapping code
     checks that only those modules were imported before signed imports were
     enabled.  It's on by default to help you avoid errors - set it to False
     to disable this check.
+
+    The bootstrapping code is embedded directly in the executable as part of
+    py2exe's PYTHONSCRIPT resource.  It should therefore be covered by a
+    signature over the executable itself.
     """
+    if check_modules is None:
+        check_modules = ["_memimporter"]
     #  Since the public key will be embedded in the executables, it's OK to
     #  generate a throw-away key that's purely for signing this particular app.
     if key is None:
@@ -279,8 +284,93 @@ signedimp.SignedImportManager([k]).install()
     sign_directory(appdir,key,hash=hash)
 
 
+def sign_py2app_bundle(appdir,key=None,hash="sha1",check_modules=None):
+    """Sign the cxfreeze app found in the specified directory.
+
+    This function signs the bundled modules found in the given py2app bundle
+    directory, and modifies the bootstrapping code to enable signed imports
+    using the given key.
+
+    If the "check_modules" keyword arg is specified, the bootstrapping code
+    checks that only those modules were imported before signed imports were
+    enabled.  It's on by default to help you avoid errors - set it to False
+    to disable this check.
+
+    The bootstrapping code is embedded into the app's __boot__.py script.
+    You'll need to be sure to sign this file as part of your applications
+    signature (I *think* it will be signed by default as it's in the Resources
+    folder, but haven't check yet).
+    """
+    if check_modules is None:
+        check_modules = ["codecs","encodings","encodings.__builtin__",
+                         "encodings.codecs","encodings.utf_8",
+                         "encodings.aliases","encodings.encodings","readline"]
+    #  Since the public key will be embedded in the executables, it's OK to
+    #  generate a throw-away key that's purely for signing this particular app.
+    if key is None:
+        key = RSAKeyWithPSS.generate()
+    #  Build the bootstrap code and put it at start of __boot__.py.
+    bscode =  """
+import sys
+def _signedimp_init():
+    %s
+    class _signedimp_exports:
+        pass
+    for nm in __all__:
+        setattr(_signedimp_exports,nm,staticmethod(locals()[nm]))
+    return _signedimp_exports
+signedimp = _signedimp_init()
+if %s:
+    for mod in sys.modules:
+        if mod not in sys.builtin_module_names and mod not in %s:
+            err = "module '%%s' already loaded, integrity checks impossible"
+            sys.stderr.write(err %% (mod,))
+            sys.stderr.write("\\nTerminating the program.\\n")
+            sys.exit(1)
+k = signedimp.%s
+signedimp.SignedImportManager([k]).install()
+""" % (get_bootstrap_code(indent="    "),
+       (check_modules not in (False,None,)),
+       repr(check_modules),
+       repr(key.get_public_key()),)
+    bsfile = os.path.join(appdir,"Contents","Resources","__boot__.py")
+    with open(bsfile,"r+") as f:
+        oldcode = f.read()
+        f.seek(0)
+        f.write(bscode)
+        f.write(oldcode)
+    #  Sign the main library.zip
+    libdir = os.path.join(appdir,"Contents","Resources","lib")
+    libdir = os.path.join(libdir,"python%d.%d"%sys.version_info[:2])
+    libzip = os.path.join(libdir,"site-packages.zip")
+    sign_zipfile(libzip,key,hash=hash)
+    #  Sign a variety of potential code dirs
+    try:
+        sign_directory(os.path.join(libdir,"lib-dynload"),key,hash=hash)
+    except EnvironmentError:
+        pass
+    try:
+        sign_directory(os.path.join(libdir,"site-packages"),key,hash=hash)
+    except EnvironmentError:
+        pass
+    try:
+        sign_directory(os.path.join(libdir,"lib-tk"),key,hash=hash)
+    except EnvironmentError:
+        pass
+    try:
+        sign_directory(libdir,key,hash=hash)
+    except EnvironmentError:
+        pass
+    #  Sign the main Resources dir.
+    sign_directory(os.path.join(appdir,"Contents","Resources"),key,hash=hash)
+    
+
 
 def _is_in_package(root,path,os=os):
+    """Check whether the given path is inside a package directory structure.
+
+    This is used to decide whether to sign it as a module or a datafile.
+    """
     while path != root:
         for (suffix,_,_) in imp.get_suffixes():
             if os.path.exists(os.path.join(path,"__init__"+suffix)):
@@ -292,12 +382,14 @@ def _is_in_package(root,path,os=os):
 
 
 def _get_module_basename(filepath,os=os):
+    """Get the base name of the module at the given file path."""
     for (suffix,_,_) in imp.get_suffixes():
         if filepath.endswith(suffix):
             return filepath[:-1*len(suffix)]
     return None
 
 def _read_file(path):
+    """Default read() function for use with hash_files()."""
     with open(path,"rb") as f:
         return f.read()
 
