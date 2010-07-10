@@ -13,7 +13,7 @@ into other code with a minimum of fuss.
 To get any real security out of this, you'll need to incorporate this script
 wholesale into your main application script so that it runs before you try to
 import anything.  Don't just import this script - after all, how would you 
-verify the import of this module?  Use signedimp.get_bootstrap_code() to
+verify the import of this module?  Use signedimp.tools.get_bootstrap_code() to
 obtain the necessary code.
 
 """

@@ -6,13 +6,20 @@
 
 
 This module provides some high-level utility functions for generating the
-signed module manifests required by signedimp.  Take a look at the following:
+signed module manifests required by signedimp.  For the common case of signing
+a frozen application, you can use one of the following::
+
+   sign_py2exe_app(appdirpath,key)
+
+   sign_py2app_bundle(bundlepath,key)
+
+   sign_cxfreeze_app(appdirpath,key)
+
+To sign independently-distributed python modules, use one of the following::
 
    sign_directory(dirpath,key)
 
    sign_zipfile(zippath,key)
-
-   sign_py2exe_app(appdirpath,key)
 
 """
 
@@ -23,6 +30,7 @@ import base64
 import zipfile
 import marshal
 import struct
+import inspect
 
 import signedimp
 from signedimp.crypto.sha1 import sha1
@@ -31,6 +39,40 @@ from signedimp.crypto.rsa import RSAKeyWithPSS
 
 if sys.platform == "win32":
     from signedimp import winres
+
+
+def get_bootstrap_code(indent=""):
+    """Get sourcecode you can use for inline bootstrapping of signed imports.
+
+    This function basically returns the source code for signedimp.bootstrap,
+    with some cryptographic primitives forcibly inlined as pure python, and
+    indented to the specified level.
+
+    You would use it to boostrap signed imports in the startup script of your
+    application, e.g. build a script like the following and hand it off to
+    py2exe for freezing:
+
+       SCRIPT = '''
+       %s
+       key = RSAKeyWithPSS(modulus,pub_exponent)
+       SignedImportManager([key]).install()
+       actually_start_my_appliction()
+       ''' % (signedimp.tools.get_bootstrap_code(),)
+
+    """
+    def _get_source_lines(mod,indent):
+        mod = __import__(mod,fromlist=["*"])
+        src = inspect.getsource(mod)
+        for ln in src.split("\n"):
+            if "from signedimp.cryptobase." in ln:
+                lnstart = ln.find("from")
+                newindent = indent + ln[:lnstart]
+                newmod = ln.strip()[5:].split()[0]
+                for newln in _get_source_lines(newmod,newindent):
+                    yield newln
+            else:
+                yield indent + ln
+    return "\n".join(_get_source_lines("signedimp.bootstrap",indent))
 
 
 def sign_directory(path,key,hash="sha1",outfile=signedimp.HASHFILE_NAME):
@@ -197,7 +239,7 @@ if %s:
             sys.exit(1)
 k = signedimp.%s
 signedimp.SignedImportManager([k]).install()
-""" % (signedimp.get_bootstrap_code(indent="    "),
+""" % (get_bootstrap_code(indent="    "),
        (check_modules not in (False,None,)),
        repr(check_modules),
        repr(key.get_public_key()),)

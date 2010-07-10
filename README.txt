@@ -99,7 +99,7 @@ and one line for each module hash.  Here's a short example::
  
 The file can contain hashes for different kinds of data; "m" indicates a module
 hash while "d" indicates a generic data file.  The format of the fingerprint
-and signature depend on the types of key being used.
+and signature depend on the types of key being used; treat them as ASCII blobs.
 
 To create a manifest file you will need a key object that includes the private
 key data.  You can then use the functions in the "tools" submodule::
@@ -112,18 +112,17 @@ key data.  You can then use the functions in the "tools" submodule::
 Bootstrapping
 -------------
 
-Clearly there is a serious bootstrapping issue here - while we can verify
-imports using this module, how do we verify the import of this module itself?
-To be of any use, it must be incorporated as part of a signed executable.
-There are several options:
+Clearly there is a serious bootstrapping issue when using this module - while
+we can verify imports one this module is loaded, how do we verify the import of
+this module itself? To be of any use, it must be incorporated as part of a
+signed executable. There are several options:
 
-   * included signedimp and sub-modules as "frozen" modules in the Python
+   * include signedimp and sub-modules as "frozen" modules in the Python
      interpreter itself, by mucking with the PyImport_FrozenModules pointer.
 
    * include signedimp in a zipfile appended to the executable, and put the
      executable itself as the first item on sys.path.  Something like this::
 
-       SCRIPT = '''
        import sys
        old_sys_path = sys.path
        sys.path = [sys.executable]
@@ -133,10 +132,9 @@ There are several options:
        sys.path = old_sys_path
 
        actually_start_my_appliction()
-       '''
 
-   * use the signedimp.get_bootstrap_code() function to obtain code that can
-     be included verbatim in your startup script, and embed the startup
+   * use the signedimp.tools.get_bootstrap_code() function to obtain code that
+     can be included verbatim in your startup script, and embed the startup
      script in the executable.  Something like this::
 
        SCRIPT = '''
@@ -145,13 +143,14 @@ There are several options:
        SignedImportManager([key]).install()
        
        actually_start_my_appliction()
-       ''' % (signedimp.get_bootstrap_code(),)
+       ''' % (signedimp.tools.get_bootstrap_code(),)
+       freeze_this_script_somehow(SCRIPT)
 
 
 Since the bootstrapping code can't perform any imports, everything (even the
 cryptographic primitives) is implemented in pure Python by default.  It is
 thus rather slow.  If you're able to securely bundle e.g. hashlib or PyCrypto
-in the executable itself, import them *before* installing the signed import
+in the executable itself, import them before* installing the signed import
 manager so that it knows they are safe to use.
 
 Of course, the first thing the import manager does once installed is try to
@@ -166,7 +165,6 @@ securely bundle these modules into the executable itself.
 So far I've only worked out the necessary voodoo for py2exe; to sign a py2exe
 frozen app do the following:
 
-    key = RSAKeyWithPSS(modulus,pub_exponent,priv_exponent)
     signedimp.tools.sign_py2exe_app("some/dir/on/sys/path",key)
 
 When I get around to it, I'll figure out and include shortcuts for other common

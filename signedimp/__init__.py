@@ -67,8 +67,10 @@ you will need PyCrypto installed, and to do the following::
     pubkey = key.get_public_key()
 
 Take the repr() of the key and store it somewhere safe, you'll need it to sign
-files.  Take the repr() of the public key and embed it in your application 
-somehow, so it can be reconstructed when verifying imports.
+files.  The various functions in signedimp.tools will embed the public key in
+the application being signed.  If you're writing our own embedding scheme,
+take the repr() of the public key so it can be reconstrcuted when verifying
+imports.
 
 This module will eventually grow support for storing the private key in an
 encrypted file, and prompting for a password to load it.  Eventually...
@@ -114,18 +116,17 @@ key data.  You can then use the functions in the "tools" submodule::
 Bootstrapping
 -------------
 
-Clearly there is a serious bootstrapping issue here - while we can verify
-imports using this module, how do we verify the import of this module itself?
-To be of any use, it must be incorporated as part of a signed executable.
-There are several options:
+Clearly there is a serious bootstrapping issue when using this module - while
+we can verify imports one this module is loaded, how do we verify the import of
+this module itself? To be of any use, it must be incorporated as part of a
+signed executable. There are several options:
 
-   * included signedimp and sub-modules as "frozen" modules in the Python
+   * include signedimp and sub-modules as "frozen" modules in the Python
      interpreter itself, by mucking with the PyImport_FrozenModules pointer.
 
    * include signedimp in a zipfile appended to the executable, and put the
      executable itself as the first item on sys.path.  Something like this::
 
-       SCRIPT = '''
        import sys
        old_sys_path = sys.path
        sys.path = [sys.executable]
@@ -135,10 +136,9 @@ There are several options:
        sys.path = old_sys_path
 
        actually_start_my_appliction()
-       '''
 
-   * use the signedimp.get_bootstrap_code() function to obtain code that can
-     be included verbatim in your startup script, and embed the startup
+   * use the signedimp.tools.get_bootstrap_code() function to obtain code that
+     can be included verbatim in your startup script, and embed the startup
      script in the executable.  Something like this::
 
        SCRIPT = '''
@@ -147,13 +147,14 @@ There are several options:
        SignedImportManager([key]).install()
        
        actually_start_my_appliction()
-       ''' % (signedimp.get_bootstrap_code(),)
+       ''' % (signedimp.tools.get_bootstrap_code(),)
+       freeze_this_script_somehow(SCRIPT)
 
 
 Since the bootstrapping code can't perform any imports, everything (even the
 cryptographic primitives) is implemented in pure Python by default.  It is
 thus rather slow.  If you're able to securely bundle e.g. hashlib or PyCrypto
-in the executable itself, import them *before* installing the signed import
+in the executable itself, import them before* installing the signed import
 manager so that it knows they are safe to use.
 
 Of course, the first thing the import manager does once installed is try to
@@ -168,7 +169,6 @@ securely bundle these modules into the executable itself.
 So far I've only worked out the necessary voodoo for py2exe; to sign a py2exe
 frozen app do the following:
 
-    key = RSAKeyWithPSS(modulus,pub_exponent,priv_exponent)
     signedimp.tools.sign_py2exe_app("some/dir/on/sys/path",key)
 
 When I get around to it, I'll figure out and include shortcuts for other common
@@ -179,9 +179,9 @@ Caveats
 -------
 
 All of the usual crypto caveats apply here.  I'm not a security expert.  The
-system is only a safe as your private key, and as the operating system it's
-run on.  In addition, there are some specific caveats for this module based on
-the way it works.
+system is only a safe as your private key, as the signature on the main python
+executable, and as the operating system it's run on.  In addition, there are
+some specific caveats for this module based on the way it works.
 
 This module operates by wrapping the existing import machinery.  To check the
 hash of a module, it asks the appropriate loader object for the code of that
@@ -209,8 +209,8 @@ however:
      any third-party imports, to make it as easy to bootstrap as possible.
 
    * I've copied the signature scheme directly from PKCS#1 and it's broadly
-     the same as that used by keyczar etc.  This is a very well understood
-     signing protocol.
+     the same as that used by keyczar etc.  This is a very simple and well
+     understood signing protocol.
 
    * The signing code is supposed to be run offline, in a controlled setting
      with controlled inputs, so the risk of e.g. timing attacks is small.
@@ -233,41 +233,6 @@ __ver_tuple__ = (__ver_major__,__ver_minor__,__ver_patch__,__ver_sub__)
 __version__ = "%d.%d.%d%s" % __ver_tuple__
 
 
-
 from signedimp.bootstrap import *
 
-
-def get_bootstrap_code(indent=""):
-    """Get sourcecode you can use for inline bootstrapping of signed imports.
-
-    This function basically returns the source code for signedimp.bootstrap,
-    with some cryptographic primitives forcibly inlined as pure python, and
-    indented to the specified level.
-
-    You would use it to boostrap signed imports in the startup script of your
-    application, e.g. build a script like the following and hand it off to
-    py2exe for freezing:
-
-       SCRIPT = '''
-       %s
-       key = RSAKeyWithPSS(modulus,pub_exponent)
-       SignedImportManager([key]).install()
-       actually_start_my_appliction()
-       ''' % (signedimp.get_bootstrap_code(),)
-
-    """
-    import inspect
-    def _get_source_lines(mod,indent):
-        mod = __import__(mod,fromlist=["*"])
-        src = inspect.getsource(mod)
-        for ln in src.split("\n"):
-            if "from signedimp.cryptobase." in ln:
-                lnstart = ln.find("from")
-                newindent = indent + ln[:lnstart]
-                newmod = ln.strip()[5:].split()[0]
-                for newln in _get_source_lines(newmod,newindent):
-                    yield newln
-            else:
-                yield indent + ln
-    return "\n".join(_get_source_lines("signedimp.bootstrap",indent))
 

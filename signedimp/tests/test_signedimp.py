@@ -14,6 +14,11 @@ import signedimp
 import signedimp.tools
 from signedimp.crypto.rsa import RSAKeyWithPSS
 
+def popen(cmd,**kwds):
+    kwds.setdefault("stdout",subprocess.PIPE)
+    kwds.setdefault("stderr",subprocess.PIPE)
+    return subprocess.Popen(cmd,**kwds)
+
 
 class TestSignedImp_DefaultImport(unittest.TestCase):
 
@@ -40,8 +45,7 @@ class TestSignedImp_DefaultImport(unittest.TestCase):
         for stmt in code:
             bscode += stmt + "; "
         cmd.append(bscode)
-        p = subprocess.Popen(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-        return p
+        return popen(cmd)
 
     def signit(self,k):
         signedimp.tools.sign_directory(self.tdir,k)
@@ -161,8 +165,7 @@ class TestSignedImp_ZipImport(TestSignedImp_DefaultImport):
         for stmt in code:
             bscode += stmt + "; "
         cmd.append(bscode)
-        p = subprocess.Popen(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-        return p
+        return popen(cmd)
 
     def zipit(self):
         libpath = os.path.join(self.tdir,"library.zip")
@@ -206,9 +209,7 @@ else:
             scriptfile = os.path.join(self.tdir,"script.py")
             self.distdir = distdir = os.path.join(self.tdir,"dist")
             with open(scriptfile,"w") as f:
-                f.write("print 'RUNNING'\n")
                 f.write("import signedimp.crypto.rsa\n")
-                f.write("print 'SUCCESS'\n")
             dist_setup(name="testapp",version="0.1",scripts=[scriptfile],
                        options={"bdist":{"dist_dir":distdir}},
                        console=[scriptfile],
@@ -223,38 +224,38 @@ else:
                     pass
 
         def test_the_test(self):
-            p = subprocess.Popen(os.path.join(self.distdir,"script.exe"))
+            p = popen(os.path.join(self.distdir,"script.exe"))
             self.assertEquals(p.wait(),0)
 
         def test_signed_app_succeeds(self):
             signedimp.tools.sign_py2exe_app(self.distdir)
-            p = subprocess.Popen(os.path.join(self.distdir,"script.exe"))
+            p = popen(os.path.join(self.distdir,"script.exe"))
             self.assertEquals(p.wait(),0)
 
         def test_unsigned_app_fails(self):
             signedimp.tools.sign_py2exe_app(self.distdir)
             zf = zipfile.ZipFile(os.path.join(self.distdir,"library.zip"),"a")
             zf.writestr(signedimp.HASHFILE_NAME,"")
-            p = subprocess.Popen(os.path.join(self.distdir,"script.exe"))
+            p = popen(os.path.join(self.distdir,"script.exe"))
             self.assertNotEquals(p.wait(),0)
 
         def test_modified_app_fails(self):
             signedimp.tools.sign_py2exe_app(self.distdir)
             zf = zipfile.ZipFile(os.path.join(self.distdir,"library.zip"),"a")
             zf.writestr("signedimp/crypto/__init__.py","")
-            p = subprocess.Popen(os.path.join(self.distdir,"script.exe"))
+            p = popen(os.path.join(self.distdir,"script.exe"))
             self.assertNotEquals(p.wait(),0)
 
         def test_unverified_modules_fails(self):
             signedimp.tools.sign_py2exe_app(self.distdir,check_modules=[])
             zf = zipfile.ZipFile(os.path.join(self.distdir,"library.zip"),"a")
             zf.writestr("signedimp/crypto/__init__.py","")
-            p = subprocess.Popen(os.path.join(self.distdir,"script.exe"))
+            p = popen(os.path.join(self.distdir,"script.exe"))
             self.assertNotEquals(p.wait(),0)
 
         def test_disabled_check_modules_succeeds(self):
             signedimp.tools.sign_py2exe_app(self.distdir,check_modules=False)
-            p = subprocess.Popen(os.path.join(self.distdir,"script.exe"))
+            p = popen(os.path.join(self.distdir,"script.exe"))
             self.assertEquals(p.wait(),0)
  
 
