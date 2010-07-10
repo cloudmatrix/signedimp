@@ -281,38 +281,38 @@ else:
             shutil.rmtree(self.tdir)
 
         def test_the_test(self):
-            p = popen(os.path.join(self.distdir,"testapp.app/Contents/MacOS/script"))
+            p = popen(os.path.join(self.distdir,"testapp.app/Contents/MacOS/testapp"))
             self.assertEquals(p.wait(),0)
 
         def test_signed_app_succeeds(self):
             signedimp.tools.sign_py2exe_app(self.distdir)
-            p = popen(os.path.join(self.distdir,"testapp.app/Contents/MacOS/script"))
+            p = popen(os.path.join(self.distdir,"testapp.app/Contents/MacOS/testapp"))
             self.assertEquals(p.wait(),0)
 
         def test_unsigned_app_fails(self):
             signedimp.tools.sign_py2exe_app(self.distdir)
             zf = zipfile.ZipFile(os.path.join(self.distdir,"testapp.app/Contents/Resources/lib/python%d.%d/site-packages.zip" % sys.version_info[:2]),"a")
             zf.writestr(signedimp.HASHFILE_NAME,"")
-            p = popen(os.path.join(self.distdir,"testapp.app/Contents/MacOS/script"))
+            p = popen(os.path.join(self.distdir,"testapp.app/Contents/MacOS/testapp"))
             self.assertNotEquals(p.wait(),0)
 
         def test_modified_app_fails(self):
             signedimp.tools.sign_py2exe_app(self.distdir)
             zf = zipfile.ZipFile(os.path.join(self.distdir,"testapp.app/Contents/Resources/lib/python%d.%d/site-packages.zip" % sys.version_info[:2]),"a")
             zf.writestr("signedimp/crypto/__init__.py","")
-            p = popen(os.path.join(self.distdir,"testapp.app/Contents/MacOS/script"))
+            p = popen(os.path.join(self.distdir,"testapp.app/Contents/MacOS/testapp"))
             self.assertNotEquals(p.wait(),0)
 
         def test_unverified_modules_fails(self):
             signedimp.tools.sign_py2exe_app(self.distdir,check_modules=[])
             zf = zipfile.ZipFile(os.path.join(self.distdir,"testapp.app/Contents/Resources/lib/python%d.%d/site-packages.zip" % sys.version_info[:2]),"a")
             zf.writestr("signedimp/crypto/__init__.py","")
-            p = popen(os.path.join(self.distdir,"testapp.app/Contents/MacOS/script"))
+            p = popen(os.path.join(self.distdir,"testapp.app/Contents/MacOS/testapp"))
             self.assertNotEquals(p.wait(),0)
 
         def test_disabled_check_modules_succeeds(self):
             signedimp.tools.sign_py2exe_app(self.distdir,check_modules=False)
-            p = popen(os.path.join(self.distdir,"testapp.app/Contents/MacOS/script"))
+            p = popen(os.path.join(self.distdir,"testapp.app/Contents/MacOS/testapp"))
             self.assertEquals(p.wait(),0)
 
 class TestMisc(unittest.TestCase):
