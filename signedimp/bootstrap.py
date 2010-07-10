@@ -276,7 +276,7 @@ _signedimp_util.recreate()
 class SignedHashDatabase(object):
     """An in-memory database of verified hash data.
 
-    This class is used to validate generic data blobs against a signed database
+    This class is used to verify generic data blobs against a signed database
     of their expected hash values.  It encapsulates the file-parsing and
     verification logic shared by SignedImportManager and SignedLoader.
     """
@@ -287,8 +287,8 @@ class SignedHashDatabase(object):
         if hashdata is not None:
             self.parse_hash_data(hashdata)
 
-    def validate(self,typ,name,data):
-        """Validate data of the given type against our hash database."""
+    def verify(self,typ,name,data):
+        """Verify data of the given type against our hash database."""
         try:
             hashes = self.hashes[(typ,name)]
         except KeyError:
@@ -374,7 +374,7 @@ class SignedImportManager(object):
     This is a PEP-302-compliant meta-path hook which wraps the standard import
     machinery so that all code is verified before it is loaded.
 
-    To enable signature validation on your python imports, create an instance
+    To enable signature verification on your python imports, create an instance
     of this class with appropriate arguments, then call its "install" method.
     This will place the manager as the first entry on sys.meta_path.
     """
@@ -402,11 +402,9 @@ class SignedImportManager(object):
 
         This method locates the loader that would ordinarily be used for the
         given module, and wraps it in a SignedLoader instance so that all
-        data is validated immediately prior to being loaded.
+        data is verified immediately prior to being loaded.
         """
-        print >>sys.stderr, "FIND", fullname, sys.path
         loader = self._find_loader(fullname,path)
-        print >>sys.stderr, "LOADER", fullname, loader
         return SignedLoader(self,loader)
 
     def _find_loader(self,fullname,path):
@@ -416,8 +414,10 @@ class SignedImportManager(object):
         302 to find the loader that we need to interrogate for details on the
         given module.
         """
+        if path is None:
+            path = sys.path
         if fullname in sys.builtin_module_names:
-            return DefaultImporter(sys.path[0] or "")
+            return DefaultImporter()
         found_me = False
         for mphook in sys.meta_path:
             if found_me:
@@ -426,18 +426,9 @@ class SignedImportManager(object):
                     return loader
             elif mphook is self:
                 found_me = True
-        for path in sys.path:
-            importer = self._get_importer(path)
-            is_zipimport = False
-            try:
-                if importer.__class__.__name__ == "zipimporter":
-                    is_zipimport = True
-            except AttributeError:
-                pass
-            if is_zipimport:
-                loader = importer.find_module(fullname.replace(".",os.sep),path)
-            else:
-                loader = importer.find_module(fullname)
+        for pathitem in path:
+            importer = self._get_importer(pathitem)
+            loader = importer.find_module(fullname)
             if loader is not None:
                 return loader
         raise ImportError(fullname)
@@ -480,15 +471,6 @@ class SignedLoader:
     def __init__(self,manager,loader):
         self.manager = manager
         self.loader = loader
-        #  Sadly, zipimport expects package components to be separated by
-        #  os.sep instead of a dot.  This violates PEP 302 but we're stuck
-        #  with it :-(
-        self.is_zipimport = False
-        try:
-            if loader.__class__.__name__ == "zipimporter":
-                self.is_zipimport = True
-        except AttributeError:
-            pass
         self.hashdb = SignedHashDatabase(manager.valid_keys)
         try:
             hashdata = self.loader.get_data(HASHFILE_NAME)
@@ -497,45 +479,58 @@ class SignedLoader:
         else:
             self.hashdb.parse_hash_data(hashdata)
 
-    def load_module(self,fullname):
+    def __getattr__(self,attr):
+        """Pass through simple attributes of the wrapped loader.
+
+        This allows access to e.g. the "archive" and "prefix" attributes of
+        a wrapper zipimporter object, while doing (moderately) careful not
+        to allow calling its methods directly.
+        """
+        try:
+            value = self.loader.__dict__[attr]
+        except (KeyError,AttributeError):
+            raise AttributeError(attr)
+        else:
+            if not isinstance(value,(int,long,basestring,float)):
+                raise AttributeError(attr)
+            return value
+
+    def load_module(self,fullname,verify=True):
         """Load the specified module, checking its integrity first.
 
         This method is really key to the whole apparatus - it requests the
         raw module data from the loader object, verifies it against the
         hash database, and only if it's valid does it request that the loader
         actually import the module.
+
+        If you *really* want to load non-verified code, you can pass the kwd
+        argument "verify" as False.  But seriously, why would you want to do
+        that?
         """
-        print >>sys.stderr, "LOAD", fullname
         try:
             return sys.modules[fullname]
         except KeyError:
             pass
-        if fullname not in sys.builtin_module_names:
-            print >>sys.stderr, "VALIDATING", fullname
+        if verify and fullname not in sys.builtin_module_names:
             data = self._get_module_data(fullname)
             if self.is_package(fullname):
                 valname = fullname + ".__init__"
             else:
                 valname = fullname
-            self.validate_module(valname,data)
-            print >>sys.stderr, "VALID", fullname
-        if self.is_zipimport:
-            return self.loader.load_module(fullname.replace(".",os.sep))
-        else:
-            return self.loader.load_module(fullname)
+            self.verify_module(valname,data)
+        mod = self.loader.load_module(fullname)
+        mod.__loader__ = self
+        return mod
 
     def get_data(self,path):
         """Get the data from the given path, checking its integrity first."""
         data = self.loader.get_data(path)
-        self.validate_data(path,data)
+        self.verify_data(path,data)
         return data
 
     def is_package(self,fullname):
         """Check whether the given module is a package."""
-        if self.is_zipimport:
-            return self.loader.is_package(fullname.replace(".",os.sep))
-        else:
-            return self.loader.is_package(fullname)
+        return self.loader.is_package(fullname)
 
     def get_code(self,fullname):
         """Get the code object for the given module.
@@ -544,10 +539,7 @@ class SignedLoader:
         you could use this method to get the module code object and create
         the module yourself.  But seriously, why would you do that?
         """
-        if self.is_zipimport:
-            return self.loader.get_code(fullname.replace(".",os.sep))
-        else:
-            return self.loader.get_code(fullname)
+        return self.loader.get_code(fullname)
 
     def get_source(self,fullname):
         """Get the code object for the given module.
@@ -556,40 +548,34 @@ class SignedLoader:
         you could use this method to get the module source code, compile it and
         create the module yourself.  But seriously, why would you do that?
         """
-        if self.is_zipimport:
-            return self.loader.get_source(fullname.replace(".",os.sep))
-        else:
-            return self.loader.get_source(fullname)
+        return self.loader.get_source(fullname)
 
     def get_filename(self,fullname):
         """Get the filename associated with the given module."""
-        if self.is_zipimport:
-            return self.loader.get_filename(fullname.replace(".",os.sep))
-        else:
-            return self.loader.get_filename(fullname)
+        return self.loader.get_filename(fullname)
 
-    def validate_module(self,fullname,data):
-        """Validate the given module data against our signature database."""
-        self._validate("m",fullname,data)
+    def verify_module(self,fullname,data):
+        """Verify the given module data against our signature database."""
+        self._verify("m",fullname,data)
 
-    def validate_data(self,path,data):
-        """Validate the given extra data against our signature database."""
-        self._validate("d",fullname,data)
+    def verify_data(self,path,data):
+        """Verify the given extra data against our signature database."""
+        self._verify("d",fullname,data)
 
-    def _validate(self,typ,name,data):
-        """Validate date for the given type specifier and name.
+    def _verify(self,typ,name,data):
+        """Verify date for the given type specifier and name.
 
-        This performs validation against the local database and the main
+        This performs verification against the local database and the main
         manager database.  If a valid hash for the item is not found in
         either location, IntegrityCheckMissing error is raised.
         """
         try:
-            self.hashdb.validate(typ,name,data)
+            self.hashdb.verify(typ,name,data)
         except IntegrityCheckMissing:
-            self.manager.hashdb.validate(typ,name,data)
+            self.manager.hashdb.verify(typ,name,data)
         else:
             try:
-                self.manager.hashdb.validate(typ,name,data)
+                self.manager.hashdb.verify(typ,name,data)
             except IntegrityCheckMissing:
                 pass
 
@@ -628,7 +614,7 @@ class SignedLoader:
 
 
 
-def DefaultImporter(path):
+def DefaultImporter(path=None):
     """Importer emulating the standard import mechanism.
 
     This is a placeholder implementation for modules that are found via the
@@ -652,17 +638,35 @@ class _DefaultImporter:
     standard builtin import mechanism.
     """
 
-    def __init__(self,path):
+    def __init__(self,path=None,base_path=None):
         self.path = path
-
-    def _exists(self,path,*args):
-        """Shortcut for checking if a file exists on the given search path."""
         if path is None:
-            path = [self.path]
-        for p in path:
-            if os.path.exists(os.path.join(p,*args)):
-                return True
-        return False
+            self.base_path = None
+        elif base_path is None:
+            #  If base_path is not given, find the best match on sys.path
+            candidates = []
+            for p in sys.path:
+                #  Break early if we're an item directly on sys.path
+                if p == path:
+                    self.base_path = path
+                    break
+                #  Add it as a candidate if our path starts with that path
+                if not p.endswith(os.sep):
+                    p = p + os.sep
+                if path.startswith(p):
+                    candidates.append(p)
+            else:
+                if candidates:
+                    #  Pick the longest prefix as our base_path
+                    candidates.sort(key=len)
+                    self.base_path = candidates[-1]
+                else:
+                    # We're nowhere on sys.path
+                    self.base_path = path
+
+    def _exists(self,*args):
+        """Shortcut for checking if a file exists relative to my path."""
+        return os.path.exists(os.path.join(self.path,*args))
 
     def find_module(self,fullname,path=None):
         """Find a loader for the given module.
@@ -671,16 +675,14 @@ class _DefaultImporter:
         """
         if fullname in sys.builtin_module_names:
             return self
-        if "." not in fullname:
-            modname = fullname
-        else:
-            pkgname,modname = fullname.rsplit(".",1)
-            pkg = self.load_module(pkgname)
-            path = pkg.__path__
+        #  Since we're always created by a meta-path hook, we will always
+        #  be given an entry from the package's __path__ if asked to load
+        #  a sub-module.  No need to grab __path__ ourselves.
+        modname = fullname.rsplit(".",1)[-1]
         for (suffix,_,_) in imp.get_suffixes():
-            if self._exists(path,modname+suffix):
+            if self._exists(modname+suffix):
                 return self
-            if self._exists(path,modname,"__init__"+suffix):
+            if self._exists(modname,"__init__"+suffix):
                 return self
         return None
 
@@ -690,13 +692,14 @@ class _DefaultImporter:
         This is the tuple returned by imp.find_module(), but we have some
         extra logic to correctly handle dotted module names.
         """
-        if "." not in fullname:
-            modname = fullname
+        #  Since we're always created by a meta-path hook, we will always
+        #  be given an entry from the package's __path__ if asked to load
+        #  a sub-module.  No need to grab __path__ ourselves.
+        modname = fullname.rsplit(".",1)[-1]
+        if self.path is None:
             path = None
         else:
-            pkgname,modname = fullname.rsplit(".",1)
-            pkg = self.load_module(pkgname)
-            path = pkg.__path__
+            path = [self.path]
         return imp.find_module(modname,path)
 
     def load_module(self,fullname):
@@ -800,8 +803,15 @@ class _DefaultImporter:
 
         
     def get_data(self,path):
-        """Get the specific data file."""
-        return open(os.path.join(self.path,path),"rb").read()
+        """Get the specified data file.
+
+        If a relative path is given, it is treated as relative to base_path
+        rather than path.  This is mostly so it will correctly find the 
+        hash database file.
+        """
+        if self.base_path is None:
+            raise OSError
+        return open(os.path.join(self.base_path,path),"rb").read()
 
 
 

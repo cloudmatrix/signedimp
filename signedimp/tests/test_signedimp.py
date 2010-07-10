@@ -78,6 +78,7 @@ class TestSignedImp_DefaultImport(unittest.TestCase):
                         "sim.install()",
                         "import signedimp_test.test1",
                         "print signedimp_test.test1.value")
+        print p.stderr.read()
         self.assertEquals(p.wait(),0)
         self.assertEquals(p.stdout.read().strip(),"7")
  
@@ -135,6 +136,7 @@ class TestSignedImp_DefaultImport(unittest.TestCase):
                         "sim.install()",
                         "import signedimp_test.test1",
                         "print signedimp_test.test1.value")
+        print p.stderr.read()
         self.assertEquals(p.wait(),0)
         self.assertEquals(p.stdout.read().strip(),"7")
         p = self._runpy("from signedimp import SignedImportManager",
@@ -212,32 +214,48 @@ else:
                        console=[scriptfile],
                        script_args=["py2exe"])
 
-        def test_the_test(self):
-            p = subprocess.Popen(os.path.join(self.distdir,"script.exe"))
-            self.assertEquals(p.wait(),0)
-
-        def test_signed_app_succeeds(self):
-            k = RSAKeyWithPSS.generate()
-            signedimp.tools.sign_py2exe_app(self.distdir,k)
-            p = subprocess.Popen(os.path.join(self.distdir,"script.exe"))
-            self.assertEquals(p.wait(),0)
-
-        def test_unsigned_app_fails(self):
-            k = RSAKeyWithPSS.generate()
-            signedimp.tools.sign_py2exe_app(self.distdir,k)
-            os.unlink(os.path.join(self.distdir,signedimp.HASHFILE_NAME))
-            p = subprocess.Popen(os.path.join(self.distdir,"script.exe"))
-            self.assertNotEquals(p.wait(),0)
-
         def tearDown(self):
-            print self.tdir
-            return
             for _ in xrange(10):
                 try:
                     shutil.rmtree(self.tdir)
                     break
                 except EnvironmentError:
                     pass
+
+        def test_the_test(self):
+            p = subprocess.Popen(os.path.join(self.distdir,"script.exe"))
+            self.assertEquals(p.wait(),0)
+
+        def test_signed_app_succeeds(self):
+            signedimp.tools.sign_py2exe_app(self.distdir)
+            p = subprocess.Popen(os.path.join(self.distdir,"script.exe"))
+            self.assertEquals(p.wait(),0)
+
+        def test_unsigned_app_fails(self):
+            signedimp.tools.sign_py2exe_app(self.distdir)
+            zf = zipfile.ZipFile(os.path.join(self.distdir,"library.zip"),"a")
+            zf.writestr(signedimp.HASHFILE_NAME,"")
+            p = subprocess.Popen(os.path.join(self.distdir,"script.exe"))
+            self.assertNotEquals(p.wait(),0)
+
+        def test_modified_app_fails(self):
+            signedimp.tools.sign_py2exe_app(self.distdir)
+            zf = zipfile.ZipFile(os.path.join(self.distdir,"library.zip"),"a")
+            zf.writestr("signedimp/crypto/__init__.py","")
+            p = subprocess.Popen(os.path.join(self.distdir,"script.exe"))
+            self.assertNotEquals(p.wait(),0)
+
+        def test_unverified_modules_fails(self):
+            signedimp.tools.sign_py2exe_app(self.distdir,check_modules=[])
+            zf = zipfile.ZipFile(os.path.join(self.distdir,"library.zip"),"a")
+            zf.writestr("signedimp/crypto/__init__.py","")
+            p = subprocess.Popen(os.path.join(self.distdir,"script.exe"))
+            self.assertNotEquals(p.wait(),0)
+
+        def test_disabled_check_modules_succeeds(self):
+            signedimp.tools.sign_py2exe_app(self.distdir,check_modules=False)
+            p = subprocess.Popen(os.path.join(self.distdir,"script.exe"))
+            self.assertEquals(p.wait(),0)
  
 
 class TestMisc(unittest.TestCase):

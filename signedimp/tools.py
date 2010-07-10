@@ -27,6 +27,7 @@ import struct
 import signedimp
 from signedimp.crypto.sha1 import sha1
 from signedimp.crypto.md5 import md5
+from signedimp.crypto.rsa import RSAKeyWithPSS
 
 if sys.platform == "win32":
     from signedimp import winres
@@ -157,19 +158,28 @@ def sign_zipfile(file,key,hash="sha1",outfile=signedimp.HASHFILE_NAME):
         outfile.write(hashdata)
 
 
-def sign_py2exe_app(appdir,key,hash="sha1"):
-    #  Sign the appdir, and any potential zipfiles.
-    sign_directory(appdir,key,hash=hash)
-    for nm in os.listdir(appdir):
-        if nm.endswith(".exe") or nm.endswith(".zip"):
-            try:
-                sign_zipfile(os.path.join(appdir,nm),key,hash=hash)
-            except zipfile.BadZipFile:
-                pass
-    #  Hack the bootstrap code into the start of the script to be run.
-    #  We do it as a function due to some strange namespace issues I
-    #  don't quite understand.
+def sign_py2exe_app(appdir,key=None,hash="sha1",check_modules=["_memimporter"]):
+    """Sign the py2exe app found in the specified directory.
+
+    This function signs the bundled modules found in the given py2exe app
+    directory, and modifies each executable bootstrap the signed imports
+    machinery using the given key.
+
+    If the "check_modules" keyword arg is specified, the bootstrapping code
+    checks that only those modules were imported before signed imports were
+    enabled.  It's on by default to help you avoid errors - set it to False
+    to disable this check.
+    """
+    #  Since the public key will be embedded in the executables, it's OK to
+    #  generate a throw-away key that's purely for signing this particular app.
+    if key is None:
+        key = RSAKeyWithPSS.generate()
+    #  Built the bootstrapping code needed for each executable.
+    #  We init the bootstrap objects inside a function so they get their own
+    #  namespace; py2exe's own bootstrap code does a "del sys" which would
+    #  play havoc with the import machinery.
     bscode =  """
+import sys
 def _signedimp_init():
     %s
     class _signedimp_exports:
@@ -177,12 +187,23 @@ def _signedimp_init():
     for nm in __all__:
         setattr(_signedimp_exports,nm,staticmethod(locals()[nm]))
     return _signedimp_exports
-
 signedimp = _signedimp_init()
+if %s:
+    for mod in sys.modules:
+        if mod not in sys.builtin_module_names and mod not in %s:
+            err = "module '%%s' already loaded, integrity checks impossible"
+            sys.stderr.write(err %% (mod,))
+            sys.stderr.write("\\nTerminating the program.\\n")
+            sys.exit(1)
 k = signedimp.%s
 signedimp.SignedImportManager([k]).install()
-""" % (signedimp.get_bootstrap_code(indent="    "),repr(key.get_public_key()),)
+""" % (signedimp.get_bootstrap_code(indent="    "),
+       (check_modules not in (False,None,)),
+       repr(check_modules),
+       repr(key.get_public_key()),)
     bscode = compile(bscode,"__main__.py","exec")
+    #  Hack the bootstrap code into the start of each script to be run.
+    #  This unfortunately depends on some inner details of the py2exe format.
     for nm in os.listdir(appdir):
         if nm.endswith(".exe"):
             exepath = os.path.join(appdir,nm)
@@ -193,18 +214,27 @@ signedimp.SignedImportManager([k]).install()
             sz = struct.calcsize("iiii")
             (magic,optmz,bfrd,codelen) = struct.unpack("iiii",appcode[:sz])
             assert magic == 0x78563412
-            codelist = appcode[sz:-1]
-            for i,c in enumerate(codelist):
+            codebytes = appcode[sz:-1]
+            for i,c in enumerate(codebytes):
                 if c == "\x00":
-                    relarcname = codelist[:i]
-                    codelist = codelist[i+1:-1]
+                    relarcname = codebytes[:i]
+                    codelist = marshal.loads(codebytes[i+1:-1])
                     break
-            codelist = marshal.loads(codelist)
             codelist.insert(0,bscode)
-            codelist = marshal.dumps(codelist)
-            appcode = struct.pack("iiii",magic,optmz,bfrd,len(codelist)) \
-                      + relarcname + "\x00" + codelist + "\x00\x00"
+            codebytes = marshal.dumps(codelist)
+            appcode = struct.pack("iiii",magic,optmz,bfrd,len(codebytes)) \
+                      + relarcname + "\x00" + codebytes + "\x00\x00"
             winres.add_resource(exepath,appcode,u"PYTHONSCRIPT",1,0)
+    #  Sign anything that might be an importable zipfile.
+    for nm in os.listdir(appdir):
+        if nm.endswith(".exe") or nm.endswith(".zip"):
+            try:
+                sign_zipfile(os.path.join(appdir,nm),key,hash=hash)
+            except zipfile.BadZipFile:
+                pass
+    #  Sign the appdir itself.  Doing this last means it will generate
+    #  a correct hash for the modified exes and zipfiles.
+    sign_directory(appdir,key,hash=hash)
 
 
 

@@ -6,16 +6,35 @@ signedimp:  signed imports for verified loading of python modules
 
 This module implements a PEP-302-compatible import hook for verifying Python
 modules before they are loaded, by means of cryptographically-signed hashes.
-It's designed to compliment the code-signing functionality of your host OS,
-which may be able to verify the Python executable itself but not the code
-that is loaded dynamically at runtime.
+It's designed to compliment the code-signing functionality of your host OS
+(e.g. Microsoft Authenticode, Apple OSX Code Signing) which may be able
+to verify the Python executable itself but not the code that is loaded
+dynamically at runtime.
 
 It will mostly be useful for frozen Python applications, or other sitautions
 where code is not expected to change.  It will be almost useless with a
 standard Python interpreter.
 
-To use, create a SignedImportManager with the appropriate keys and install
-it into the import machinery as follows::
+If you're just after a black-box solution, you could try one of the following
+function calls to sign your app with a new randomly-generated key::
+
+    signedimp.tools.sign_py2exe_app(path_to_app_dir)
+    signedimp.tools.sign_py2app_bundle(path_to_app_dir)
+    signedimp.tools.sign_cxfreeze_app(path_to_app_dir)
+
+These functions modify a frozen Python application so that it verifies the
+integrity of its modules before they are loaded, using a one-time key generated
+just for that application.
+
+But really, you should read on to understand exactly what's going on.  There
+are plenty of caveats to be had.
+
+
+Enabling Signed Imports
+-----------------------
+
+To enable signed imports, you need to create a SignedImportManager with the
+appropriate cryptographic keys and install it into the import machinery::
 
     from signedimp import SignedImportManager, RSAKeyWithPSS
 
@@ -25,13 +44,32 @@ it into the import machinery as follows::
 
 From this point on, all requests to import a module will be checked against
 signed manifest files before being allow to proceed.  If a module cannot be
-validated then the import will fail.
+verified then the import will fail.
 
-Validation is performed in coopertion with the existing import machinery,
+Verification is performed in coopertion with the existing import machinery,
 using the optional loader method get_data().  It works with at least the 
 default import machinery and the zipimport module; if you have custom import
 hooks that don't offer this method, or that don't conform to the standard
 file layout for python imports, they will will not be usabled with signedimp.
+
+
+Keys
+----
+
+Currently signedimp uses RSA keys for its digital signatures, along with the
+"Probabilistic Signature Scheme" padding mechanism.  To generate a new key
+you will need PyCrypto installed, and to do the following::
+
+    from signedimp.crypto.rsa import RSAKeyWithPSS
+    key = RSAKeyWithPSS.generate()
+    pubkey = key.get_public_key()
+
+Take the repr() of the key and store it somewhere safe, you'll need it to sign
+files.  Take the repr() of the public key and embed it in your application 
+somehow, so it can be reconstructed when verifying imports.
+
+This module will eventually grow support for storing the private key in an
+encrypted file, and prompting for a password to load it.  Eventually...
 
 
 Manifests
@@ -69,7 +107,6 @@ key data.  You can then use the functions in the "tools" submodule::
     key = RSAKeyWithPSS(modulus,pub_exponent,priv_exponent)
     signedimp.tools.sign_directory("some/dir/on/sys/path",key)
     signedimp.tools.sign_zipfile("some/zipfile/on/sys/path.zip",key)
-
 
 
 Bootstrapping
