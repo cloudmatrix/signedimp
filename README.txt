@@ -64,14 +64,21 @@ you will need PyCrypto installed, and to do the following::
     key = RSAKeyWithPSS.generate()
     pubkey = key.get_public_key()
 
-Take the repr() of the key and store it somewhere safe, you'll need it to sign
-files.  The various functions in signedimp.tools will embed the public key in
-the application being signed.  If you're writing your own embedding scheme,
-take the repr() of the public key so it can be reconstrcuted when verifying
-imports.
+Store this key somewhere safe, you'll need it to sign files.  The simplest way
+is using the "save_to_file" method::
 
-This module will eventually grow support for storing the private key in an
-encrypted file, and prompting for a password to load it.  Eventually...
+    with open("mykeyfile","wb") as f:
+        key.save_to_file(f,"mypassword")
+
+To retreive the key in e.g. your build scripts, do something like this::
+
+    with open("mykeyfile","rb") as f:
+        key = RSAKeyWithPSS.load_from_file(f,getpass())
+
+You'll also need to embed the public key somewhere in your final executable
+so it's available for verifying imports.  The functions in signedimp.tools will
+do this for you - if you're writing you own scheme you can either pickle it, or
+embed its repr() somewhere in your source code.
 
 
 Manifests
