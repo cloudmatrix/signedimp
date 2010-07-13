@@ -4,12 +4,12 @@ signedimp:  signed imports for verified loading of python modules
 =================================================================
 
 
-This module implements a PEP-302-compatible import hook for verifying Python
-modules before they are loaded, by means of cryptographically-signed hashes.
-It's designed to compliment the code-signing functionality of your host OS
-(e.g. Microsoft Authenticode, Apple OSX Code Signing) which may be able
-to verify the Python executable itself but not the code that is loaded
-dynamically at runtime.
+This module implements an import hook for verifying Python modules before they
+are loaded, by means of cryptographically-signed hashes.  It is compatible with
+PEP 302 and designed to complement the code-signing functionality of your host
+OS (e.g. Microsoft Authenticode, Apple OSX Code Signing) which may be able to
+verify the Python executable itself but not the code that is dynamically loaded
+at runtime.
 
 It will mostly be useful for frozen Python applications, or other sitautions
 where code is not expected to change.  It will be almost useless with a
@@ -20,6 +20,7 @@ function calls to sign your app with a new randomly-generated key::
 
     signedimp.tools.sign_py2exe_app(path_to_app_dir)
     signedimp.tools.sign_py2app_bundle(path_to_app_dir)
+    signedimp.tools.sign_cxfreeze_app(path_to_app_dir)
 
 These functions modify a frozen Python application so that it verifies the
 integrity of its modules before they are loaded, using a one-time key generated
@@ -49,7 +50,7 @@ Verification is performed in coopertion with the existing import machinery,
 using the optional loader method get_data().  It works with at least the 
 default import machinery and the zipimport module; if you have custom import
 hooks that don't offer this method, or that don't conform to the standard
-file layout for python imports, they will will not be usabled with signedimp.
+file layout for python imports, they will will not be usable with signedimp.
 
 
 Keys
@@ -65,7 +66,7 @@ you will need PyCrypto installed, and to do the following::
 
 Take the repr() of the key and store it somewhere safe, you'll need it to sign
 files.  The various functions in signedimp.tools will embed the public key in
-the application being signed.  If you're writing our own embedding scheme,
+the application being signed.  If you're writing your own embedding scheme,
 take the repr() of the public key so it can be reconstrcuted when verifying
 imports.
 
@@ -100,12 +101,14 @@ and one line for each module hash.  Here's a short example::
  
 The file can contain hashes for different kinds of data; "m" indicates a module
 hash while "d" indicates a generic data file.  The format of the fingerprint
-and signature depend on the types of key being used; treat them as ASCII blobs.
+and signature depend on the types of key being used, and should be treated as
+ASCII blobs.
 
 To create a manifest file you will need a key object that includes the private
 key data.  You can then use the functions in the "tools" submodule::
 
     key = RSAKeyWithPSS(modulus,pub_exponent,priv_exponent)
+
     signedimp.tools.sign_directory("some/dir/on/sys/path",key)
     signedimp.tools.sign_zipfile("some/zipfile/on/sys/path.zip",key)
 
@@ -118,35 +121,15 @@ we can verify imports one this module is loaded, how do we verify the import of
 this module itself? To be of any use, it must be incorporated as part of a
 signed executable. There are several options:
 
-   * include signedimp and sub-modules as "frozen" modules in the Python
-     interpreter itself, by mucking with the PyImport_FrozenModules pointer.
+   * include signedimp as a "frozen" module in the Python interpreter itself,
+     by mucking with the PyImport_FrozenModules pointer.
 
    * include signedimp in a zipfile appended to the executable, and put the
-     executable itself as the first item on sys.path.  Something like this::
-
-       import sys
-       old_sys_path = sys.path
-       sys.path = [sys.executable]
-       from signedimport import SignedImportManager, RSAKeyWithPSS
-       key = RSAKeyWithPSS(modulus,pub_exponent)
-       SignedImportManager([key]).install()
-       sys.path = old_sys_path
-
-       actually_start_my_appliction()
+     executable itself as the first item on sys.path.
 
    * use the signedimp.tools.get_bootstrap_code() function to obtain code that
      can be included verbatim in your startup script, and embed the startup
-     script in the executable.  Something like this::
-
-       SCRIPT = '''
-       %s
-       key = RSAKeyWithPSS(modulus,pub_exponent)
-       SignedImportManager([key]).install()
-       
-       actually_start_my_appliction()
-       ''' % (signedimp.tools.get_bootstrap_code(),)
-       freeze_this_script_somehow(SCRIPT)
-
+     script in the executable.
 
 Since the bootstrapping code can't perform any imports, everything (even the
 cryptographic primitives) is implemented in pure Python by default.  It is
@@ -163,17 +146,13 @@ startup scripts often import common modules such as "os".  You'll either need
 to hack the frozen exe to run the signedimp bootstrapping code first, or
 securely bundle these modules into the executable itself.
 
-So far I've only worked out the necessary voodoo for py2exe and py2app, and 
-there are helper functions in "signedimp.tools" that will do it for you.
+So far I've worked out the necessary incantations for signing py2exe, py2app
+and cxfreeze applications, and there are helper functions in "signedimp.tools"
+that will do it for you.
 
-I'm still working on the details of signing a cxfreeze executable.  It would
-be easy except that the zipimport module can't handle archives with an appended
-comment, so you can't put things in the exe as a zipfile and then sign the exe
-with authenticode.  You may need to build a custom interpreter.
-
-I don't belive it's possible to sign a bbfreeze application without building
-a custom interpreter.  Since bbfreeze always sets sys.path to the library.zip
-and the application dir, there is no way to bundle the bootstrapping code into
+I don't belive it's possible to sign a bbfreeze application without patching
+bbfreeze itsel.  Since bbfreeze always sets sys.path to the library.zip and
+the application dir, there is no way to bundle the bootstrapping code into
 the executable itself.
 
 

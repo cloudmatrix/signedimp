@@ -1,4 +1,9 @@
 
+v0.1.1
+
+    * implemented sign_cxfreeze_app() function, although it currently requires
+      a patched interpreter to be of any real use.
+
 v0.1.0:
 
     * initial release; you might say *everything* has changed.

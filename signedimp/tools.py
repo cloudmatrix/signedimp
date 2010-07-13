@@ -24,6 +24,8 @@ To sign independently-distributed python modules, use one of the following::
 
 """
 
+from __future__ import with_statement
+
 import os
 import sys
 import imp

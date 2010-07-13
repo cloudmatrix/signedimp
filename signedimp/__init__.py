@@ -22,6 +22,7 @@ function calls to sign your app with a new randomly-generated key::
 
     signedimp.tools.sign_py2exe_app(path_to_app_dir)
     signedimp.tools.sign_py2app_bundle(path_to_app_dir)
+    signedimp.tools.sign_cxfreeze_app(path_to_app_dir)
 
 These functions modify a frozen Python application so that it verifies the
 integrity of its modules before they are loaded, using a one-time key generated
@@ -126,31 +127,11 @@ signed executable. There are several options:
      by mucking with the PyImport_FrozenModules pointer.
 
    * include signedimp in a zipfile appended to the executable, and put the
-     executable itself as the first item on sys.path.  Something like this::
-
-       import sys
-       old_sys_path = sys.path
-       sys.path = [sys.executable]
-       from signedimport import SignedImportManager, RSAKeyWithPSS
-       key = RSAKeyWithPSS(modulus,pub_exponent)
-       SignedImportManager([key]).install()
-       sys.path = old_sys_path
-
-       actually_start_my_appliction()
+     executable itself as the first item on sys.path.
 
    * use the signedimp.tools.get_bootstrap_code() function to obtain code that
      can be included verbatim in your startup script, and embed the startup
-     script in the executable.  Something like this::
-
-       SCRIPT = '''
-       %s
-       key = RSAKeyWithPSS(modulus,pub_exponent)
-       SignedImportManager([key]).install()
-       
-       actually_start_my_appliction()
-       ''' % (signedimp.tools.get_bootstrap_code(),)
-       freeze_this_script_somehow(SCRIPT)
-
+     script in the executable.
 
 Since the bootstrapping code can't perform any imports, everything (even the
 cryptographic primitives) is implemented in pure Python by default.  It is
@@ -167,17 +148,13 @@ startup scripts often import common modules such as "os".  You'll either need
 to hack the frozen exe to run the signedimp bootstrapping code first, or
 securely bundle these modules into the executable itself.
 
-So far I've only worked out the necessary voodoo for py2exe and py2app, and 
-there are helper functions in "signedimp.tools" that will do it for you.
+So far I've worked out the necessary incantations for signing py2exe, py2app
+and cxfreeze applications, and there are helper functions in "signedimp.tools"
+that will do it for you.
 
-I'm still working on the details of signing a cxfreeze executable.  It would
-be easy except that the zipimport module can't handle archives with an appended
-comment, so you can't put things in the exe as a zipfile and then sign the exe
-with authenticode.  You may need to build a custom interpreter.
-
-I don't belive it's possible to sign a bbfreeze application without building
-a custom interpreter.  Since bbfreeze always sets sys.path to the library.zip
-and the application dir, there is no way to bundle the bootstrapping code into
+I don't belive it's possible to sign a bbfreeze application without patching
+bbfreeze itsel.  Since bbfreeze always sets sys.path to the library.zip and
+the application dir, there is no way to bundle the bootstrapping code into
 the executable itself.
 
 
@@ -233,7 +210,7 @@ You have been warned.
 
 __ver_major__ = 0
 __ver_minor__ = 1
-__ver_patch__ = 0
+__ver_patch__ = 1
 __ver_sub__ = ""
 __ver_tuple__ = (__ver_major__,__ver_minor__,__ver_patch__,__ver_sub__)
 __version__ = "%d.%d.%d%s" % __ver_tuple__
