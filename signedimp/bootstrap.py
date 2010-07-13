@@ -38,6 +38,8 @@ def _signedimp_mod_available(modname):
         return True
     if sys.modules.get(modname) is not None:
         return True
+    if imp.is_frozen(modname):
+        return True
     return False
 
 #  The sys module is always builtin, since it's needed to do imports.
@@ -415,9 +417,10 @@ class SignedImportManager(object):
         given module.
         """
         if path is None:
+            loader = BuiltinImporter.find_module(fullname)
+            if loader is not None:
+                return loader
             path = sys.path
-        if fullname in sys.builtin_module_names:
-            return DefaultImporter()
         found_me = False
         for mphook in sys.meta_path:
             if found_me:
@@ -474,7 +477,7 @@ class SignedLoader:
         self.hashdb = SignedHashDatabase(manager.valid_keys)
         try:
             hashdata = self.loader.get_data(HASHFILE_NAME)
-        except EnvironmentError:
+        except (AttributeError,EnvironmentError):
             pass
         else:
             self.hashdb.parse_hash_data(hashdata)
@@ -503,15 +506,14 @@ class SignedLoader:
         hash database, and only if it's valid does it request that the loader
         actually import the module.
 
-        If you *really* want to load non-verified code, you can pass the kwd
-        argument "verify" as False.  But seriously, why would you want to do
-        that?
+        If you really want to load non-verified code, you can pass the kwd arg
+        "verify" as False.  But seriously, why would you want to do that?
         """
         try:
             return sys.modules[fullname]
         except KeyError:
             pass
-        if verify and fullname not in sys.builtin_module_names:
+        if verify and self.loader is not BuiltinImporter:
             data = self._get_module_data(fullname)
             if self.is_package(fullname):
                 valname = fullname + ".__init__"
@@ -614,6 +616,47 @@ class SignedLoader:
 
 
 
+class BuiltinImporter(object):
+    """Importer managing builtin and frozen modules.
+
+    This is a singleton class managing the import of builtin and frozen
+    modules.  It's the only loader that is implicitly trusted, since its
+    modules come directly from the main executable.
+    """
+
+    @classmethod
+    def find_module(self,fullname):
+        if imp.is_builtin(fullname):
+            return self
+        if imp.is_frozen(fullname):
+            return self
+        return None
+
+    @classmethod
+    def load_module(self,fullname):
+        try:
+            return sys.modules[fullname]
+        except KeyError:
+            pass
+        if imp.is_builtin(fullname):
+            mod = imp.init_builtin(fullname)
+        elif imp.is_frozen(fullname):
+            mod = imp.init_frozen(fullname)
+        else:
+            raise ImportError(fullname + " is not builtin or frozen")
+        sys.modules[fullname] = mod
+        return mod
+
+    @classmethod
+    def is_package(self,fullname):
+        if imp.is_builtin(fullname+".__init__"):
+            return True
+        if imp.is_frozen(fullname+".__init__"):
+            return True
+        return False
+
+
+
 def DefaultImporter(path=None):
     """Importer emulating the standard import mechanism.
 
@@ -668,24 +711,6 @@ class _DefaultImporter:
         """Shortcut for checking if a file exists relative to my path."""
         return os.path.exists(os.path.join(self.path,*args))
 
-    def find_module(self,fullname,path=None):
-        """Find a loader for the given module.
-
-        If the module can be located, this method will always return self.
-        """
-        if fullname in sys.builtin_module_names:
-            return self
-        #  Since we're always created by a meta-path hook, we will always
-        #  be given an entry from the package's __path__ if asked to load
-        #  a sub-module.  No need to grab __path__ ourselves.
-        modname = fullname.rsplit(".",1)[-1]
-        for (suffix,_,_) in imp.get_suffixes():
-            if self._exists(modname+suffix):
-                return self
-            if self._exists(modname,"__init__"+suffix):
-                return self
-        return None
-
     def _get_module_info(self,fullname):
         """Get the module info tuple for the given module.
 
@@ -701,6 +726,22 @@ class _DefaultImporter:
         else:
             path = [self.path]
         return imp.find_module(modname,path)
+
+    def find_module(self,fullname,path=None):
+        """Find a loader for the given module.
+
+        If the module can be located, this method will always return self.
+        """
+        #  Since we're always created by a meta-path hook, we will always
+        #  be given an entry from the package's __path__ if asked to load
+        #  a sub-module.  No need to grab __path__ ourselves.
+        modname = fullname.rsplit(".",1)[-1]
+        for (suffix,_,_) in imp.get_suffixes():
+            if self._exists(modname+suffix):
+                return self
+            if self._exists(modname,"__init__"+suffix):
+                return self
+        return None
 
     def load_module(self,fullname):
         """Load the given module."""
