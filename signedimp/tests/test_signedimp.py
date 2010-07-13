@@ -14,6 +14,14 @@ import signedimp
 import signedimp.tools
 from signedimp.crypto.rsa import RSAKeyWithPSS
 
+#  setuptools likes to be imported before anything else that
+#  might monkey-patch distutils.  We don't actually use it,
+#  this is just to avoid errors with cx_Freeze.
+try:
+    import setuptools
+except ImportError:
+    pass
+
 def popen(cmd,**kwds):
     kwds.setdefault("stdout",subprocess.PIPE)
     kwds.setdefault("stderr",subprocess.PIPE)
@@ -246,10 +254,8 @@ else:
             p = popen(os.path.join(self.distdir,"script.exe"))
             self.assertNotEquals(p.wait(),0)
 
-        def test_unverified_modules_fails(self):
+        def test_unchecked_modules_fails(self):
             signedimp.tools.sign_py2exe_app(self.distdir,check_modules=[])
-            zf = zipfile.ZipFile(os.path.join(self.distdir,"library.zip"),"a")
-            zf.writestr("signedimp/crypto/__init__.py","")
             p = popen(os.path.join(self.distdir,"script.exe"))
             self.assertNotEquals(p.wait(),0)
 
@@ -257,6 +263,73 @@ else:
             signedimp.tools.sign_py2exe_app(self.distdir,check_modules=False)
             p = popen(os.path.join(self.distdir,"script.exe"))
             self.assertEquals(p.wait(),0)
+
+try:
+    import cx_Freeze
+except ImportError:
+    pass
+else:
+
+    class TestSignedImp_cxfreeze(unittest.TestCase):
+
+        def setUp(self):
+            self.tdir = tempfile.mkdtemp()
+            scriptfile = os.path.join(self.tdir,"script.py")
+            self.distdir = distdir = os.path.join(self.tdir,"dist")
+            with open(scriptfile,"w") as f:
+                f.write("import signedimp.crypto.rsa\n")
+            f = cx_Freeze.Freezer([cx_Freeze.Executable(scriptfile)],
+                                  targetDir=self.distdir)
+            f.Freeze()
+            if sys.platform == "win32":
+                self.scriptexe = os.path.join(self.distdir,"script.exe")
+            else:
+                self.scriptexe = os.path.join(self.distdir,"script")
+
+        def tearDown(self):
+            for _ in xrange(10):
+                try:
+                    shutil.rmtree(self.tdir)
+                    break
+                except EnvironmentError:
+                    pass
+
+        def test_the_test(self):
+            p = popen(self.scriptexe)
+            self.assertEquals(p.wait(),0)
+
+        def test_signed_app_succeeds(self):
+            signedimp.tools.sign_cxfreeze_app(self.distdir)
+            p = popen(self.scriptexe)
+            print p.stderr.read()
+            self.assertEquals(p.wait(),0)
+
+        def test_unsigned_app_fails(self):
+            signedimp.tools.sign_cxfreeze_app(self.distdir)
+            zf = zipfile.ZipFile(self.scriptexe,"a")
+            zf.writestr(signedimp.HASHFILE_NAME,"")
+            zf.close()
+            p = popen(self.scriptexe)
+            self.assertNotEquals(p.wait(),0)
+
+        def test_modified_app_fails(self):
+            signedimp.tools.sign_cxfreeze_app(self.distdir)
+            zf = zipfile.ZipFile(self.scriptexe,"a")
+            zf.writestr("signedimp/crypto/__init__.py","")
+            zf.close()
+            p = popen(self.scriptexe)
+            self.assertNotEquals(p.wait(),0)
+
+        def test_unchecked_modules_fails(self):
+            signedimp.tools.sign_cxfreeze_app(self.distdir,check_modules=[])
+            p = popen(self.scriptexe)
+            self.assertNotEquals(p.wait(),0)
+
+        def test_disabled_check_modules_succeeds(self):
+            signedimp.tools.sign_cxfreeze_app(self.distdir,check_modules=False)
+            p = popen(self.scriptexe)
+            self.assertEquals(p.wait(),0)
+
  
 try:
     import py2app
@@ -303,10 +376,8 @@ else:
             p = popen(os.path.join(self.distdir,"testapp.app/Contents/MacOS/testapp"))
             self.assertNotEquals(p.wait(),0)
 
-        def test_unverified_modules_fails(self):
+        def test_unchecked_modules_fails(self):
             signedimp.tools.sign_py2exe_app(self.distdir,check_modules=[])
-            zf = zipfile.ZipFile(os.path.join(self.distdir,"testapp.app/Contents/Resources/lib/python%d.%d/site-packages.zip" % sys.version_info[:2]),"a")
-            zf.writestr("signedimp/crypto/__init__.py","")
             p = popen(os.path.join(self.distdir,"testapp.app/Contents/MacOS/testapp"))
             self.assertNotEquals(p.wait(),0)
 

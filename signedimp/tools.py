@@ -13,6 +13,8 @@ a frozen application, you can use one of the following::
 
    sign_py2app_bundle(bundlepath,key)
 
+   sign_cxfreeze_app(appdirpath,key)
+
 
 To sign independently-distributed python modules, use one of the following::
 
@@ -30,6 +32,8 @@ import zipfile
 import marshal
 import struct
 import inspect
+import time
+import subprocess
 
 import signedimp
 from signedimp.crypto.sha1 import sha1
@@ -245,7 +249,7 @@ if %s:
 k = signedimp.%s
 signedimp.SignedImportManager([k]).install()
 """ % (get_bootstrap_code(indent="    "),
-       (check_modules not in (False,None,)),
+       check_modules != False,
        repr(check_modules),
        repr(key.get_public_key()),)
     bscode = compile(bscode,"__main__.py","exec")
@@ -277,7 +281,7 @@ signedimp.SignedImportManager([k]).install()
         if nm.endswith(".exe") or nm.endswith(".zip"):
             try:
                 sign_zipfile(os.path.join(appdir,nm),key,hash=hash)
-            except zipfile.BadZipFile:
+            except zipfile.BadZipfile:
                 pass
     #  Sign the appdir itself.  Doing this last means it will generate
     #  a correct hash for the modified exes and zipfiles.
@@ -285,7 +289,7 @@ signedimp.SignedImportManager([k]).install()
 
 
 def sign_py2app_bundle(appdir,key=None,hash="sha1",check_modules=None):
-    """Sign the cxfreeze app found in the specified directory.
+    """Sign the py2app bundle found in the specified directory.
 
     This function signs the bundled modules found in the given py2app bundle
     directory, and modifies the bootstrapping code to enable signed imports
@@ -298,8 +302,9 @@ def sign_py2app_bundle(appdir,key=None,hash="sha1",check_modules=None):
 
     The bootstrapping code is embedded into the app's __boot__.py script.
     You'll need to be sure to sign this file as part of your applications
-    signature (I *think* it will be signed by default as it's in the Resources
-    folder, but haven't check yet).
+    signature.  The default signing scheme for OSX covers it as it's in the
+    "Resources" folder, but if you write custom signing specs then you'll have
+    to be careful.
     """
     if check_modules is None:
         check_modules = ["codecs","encodings","encodings.__builtin__",
@@ -330,7 +335,7 @@ if %s:
 k = signedimp.%s
 signedimp.SignedImportManager([k]).install()
 """ % (get_bootstrap_code(indent="    "),
-       (check_modules not in (False,None,)),
+       check_modules != False,
        repr(check_modules),
        repr(key.get_public_key()),)
     bsfile = os.path.join(appdir,"Contents","Resources","__boot__.py")
@@ -364,6 +369,139 @@ signedimp.SignedImportManager([k]).install()
     #  Sign the main Resources dir.
     sign_directory(os.path.join(appdir,"Contents","Resources"),key,hash=hash)
     
+
+def sign_cxfreeze_app(appdir,key=None,hash="sha1",check_modules=None):
+    """Sign the cxfreeze app found in the specified directory.
+
+    This function signs the modules found in the given cxfreeze application
+    directory, and modifies each executable to bootstrap signed imports using
+    the given key.
+
+    If the "check_modules" keyword arg is specified, the bootstrapping code
+    checks that only those modules were imported before signed imports were
+    enabled.  It's on by default to help you avoid errors - set it to False
+    to disable this check.
+
+    The bootstrapping code is embedded into each executable as an appended
+    zipfile, which cxfreeze will helpfully place as the first item on sys.path.
+    Due to an unfortunate limitation of the zipimport module, you'll need a
+    patched version of python if you intend to sign the executables with e.g.
+    Microsoft Authenticode; see Issue 5950 for more details:
+
+        http://bugs.python.org/issue5950
+
+    """
+    initmod = "cx_Freeze__init__"
+    if check_modules is None:
+        check_modules = ["codecs","encodings","encodings.__builtin__",
+                         "encodings.codecs","encodings.utf_8",
+                         "encodings.aliases","encodings.encodings"]
+    #  Since the public key will be embedded in the executables, it's OK to
+    #  generate a throw-away key that's purely for signing this particular app.
+    if key is None:
+        key = RSAKeyWithPSS.generate()
+    #  Build the bootstrap code to be inserted into each executable.  Since
+    #  it replaces the cx_Freeze__init__ script it needs to exec that once
+    #  the signed imports are in place.
+    bscode_tmplt =  """
+import sys
+if %s:
+    for mod in sys.modules:
+        if mod not in sys.builtin_module_names and mod not in %s:
+            err = "module '%%s' already loaded, integrity checks impossible"
+            sys.stderr.write(err %% (mod,))
+            sys.stderr.write("\\nTerminating the program.\\n")
+            sys.exit(1)
+
+import signedimp
+k = signedimp.%s
+signedimp.SignedImportManager([k]).install()
+
+print FILE_NAME
+print SHARED_ZIP_FILE_NAME
+print EXCLUSIVE_ZIP_FILE_NAME
+print INITSCRIPT_ZIP_FILE_NAME
+if %s:
+    import marshal
+    exec marshal.loads(%s)
+else:
+    import zipimport
+    initmod = "cx_Freeze__init__"
+    try:
+        imp = zipimport.zipimporter(EXCLUSIVE_ZIP_FILE_NAME)
+        imp.find_module(initmod)
+        INITSCRIPT_ZIP_FILE_NAME = EXCLUSIVE_ZIP_FILE_NAME
+    except ImportError:
+        imp = zipimport.zipimporter(SHARED_ZIP_FILE_NAME)
+        imp.find_module(initmod)
+        INITSCRIPT_ZIP_FILE_NAME = SHARED_ZIP_FILE_NAME
+    code = imp.get_code(initmod)
+    exec code
+    
+"""
+    #  Add the bootstrapping code to any executables found in the dir.
+    for nm in os.listdir(appdir):
+        fpath = os.path.join(appdir,nm)
+        if not _is_executable(fpath):
+            continue
+        zf = zipfile.PyZipFile(fpath,"a")
+        try:
+            #  If it contains the init module already, we'll need to
+            #  grab its code to bootstrap into it.
+            try:
+                initcode = zf.read(initmod+".pyc")[8:]
+            except KeyError:
+                initcode = ""
+            #  Store our own code as the cxfreeze init module
+            bssrc = bscode_tmplt % (check_modules != False,
+                                    repr(check_modules),
+                                    repr(key.get_public_key()),
+                                    bool(initcode),
+                                    repr(initcode),
+                    )
+            bscode = imp.get_magic() + struct.pack("<i",time.time())
+            bscode += marshal.dumps(compile(bssrc,initmod+".py","exec"))
+            zf.writestr(initmod+".pyc",bscode)
+            #  Make sure the signedimp module is bundled into the zipfile
+            zf.writepy(os.path.dirname(signedimp.__file__))
+            #  The python interpreter itself tries to import various encodings
+            #  modules on startup.  They must also be bundled into the exe.
+            #  Fortunately cxfreeze usually includes them as frozen modules
+            #  directly into the exe; this is just to make sure.
+            for nm2 in os.listdir(appdir):
+                if nm2 == nm:
+                    continue
+                try:
+                    zf2 = zipfile.ZipFile(os.path.join(appdir,nm2))
+                except zipfile.BadZipfile:
+                    pass
+                else:
+                    try:
+                        for znm in zf2.namelist():
+                            for incmod in ("encodings","codecs"):
+                                if znm.startswith(incmod):
+                                    zf.writestr(incmod,zf2.read(incmod))
+                    finally:
+                        zf2.close()
+        finally:
+            zf.close()
+    #  Sign any zipfiles in the appdir (inlcuding the exes from above)
+    for nm in os.listdir(appdir):
+        try:
+            sign_zipfile(os.path.join(appdir,nm),key,hash=hash)
+        except zipfile.BadZipfile:
+            pass
+    #  Sign the main app dir.
+    sign_directory(appdir,key,hash=hash)
+
+
+
+def _is_executable(path):
+    if sys.platform == "win32":
+        return path.endswith(".exe")
+    else:
+        p = subprocess.Popen(["file",path],stdout=subprocess.PIPE)
+        return ("executable" in p.stdout.read())
 
 
 def _is_in_package(root,path,os=os):

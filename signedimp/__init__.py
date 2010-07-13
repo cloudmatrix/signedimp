@@ -6,12 +6,12 @@ signedimp:  signed imports for verified loading of python modules
 =================================================================
 
 
-This module implements a PEP-302-compatible import hook for verifying Python
-modules before they are loaded, by means of cryptographically-signed hashes.
-It's designed to compliment the code-signing functionality of your host OS
-(e.g. Microsoft Authenticode, Apple OSX Code Signing) which may be able
-to verify the Python executable itself but not the code that is loaded
-dynamically at runtime.
+This module implements an import hook for verifying Python modules before they
+are loaded, by means of cryptographically-signed hashes.  It is compatible with
+PEP 302 and designed to complement the code-signing functionality of your host
+OS (e.g. Microsoft Authenticode, Apple OSX Code Signing) which may be able to
+verify the Python executable itself but not the code that is dynamically loaded
+at runtime.
 
 It will mostly be useful for frozen Python applications, or other sitautions
 where code is not expected to change.  It will be almost useless with a
@@ -51,7 +51,7 @@ Verification is performed in coopertion with the existing import machinery,
 using the optional loader method get_data().  It works with at least the 
 default import machinery and the zipimport module; if you have custom import
 hooks that don't offer this method, or that don't conform to the standard
-file layout for python imports, they will will not be usabled with signedimp.
+file layout for python imports, they will will not be usable with signedimp.
 
 
 Keys
@@ -67,7 +67,7 @@ you will need PyCrypto installed, and to do the following::
 
 Take the repr() of the key and store it somewhere safe, you'll need it to sign
 files.  The various functions in signedimp.tools will embed the public key in
-the application being signed.  If you're writing our own embedding scheme,
+the application being signed.  If you're writing your own embedding scheme,
 take the repr() of the public key so it can be reconstrcuted when verifying
 imports.
 
@@ -102,12 +102,14 @@ and one line for each module hash.  Here's a short example::
  
 The file can contain hashes for different kinds of data; "m" indicates a module
 hash while "d" indicates a generic data file.  The format of the fingerprint
-and signature depend on the types of key being used; treat them as ASCII blobs.
+and signature depend on the types of key being used, and should be treated as
+ASCII blobs.
 
 To create a manifest file you will need a key object that includes the private
 key data.  You can then use the functions in the "tools" submodule::
 
     key = RSAKeyWithPSS(modulus,pub_exponent,priv_exponent)
+
     signedimp.tools.sign_directory("some/dir/on/sys/path",key)
     signedimp.tools.sign_zipfile("some/zipfile/on/sys/path.zip",key)
 
@@ -120,8 +122,8 @@ we can verify imports one this module is loaded, how do we verify the import of
 this module itself? To be of any use, it must be incorporated as part of a
 signed executable. There are several options:
 
-   * include signedimp and sub-modules as "frozen" modules in the Python
-     interpreter itself, by mucking with the PyImport_FrozenModules pointer.
+   * include signedimp as a "frozen" module in the Python interpreter itself,
+     by mucking with the PyImport_FrozenModules pointer.
 
    * include signedimp in a zipfile appended to the executable, and put the
      executable itself as the first item on sys.path.  Something like this::
