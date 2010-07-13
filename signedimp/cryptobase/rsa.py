@@ -94,6 +94,15 @@ class RSAKeyWithPSS(RSAKey):
         super(RSAKeyWithPSS,self).__init__(modulus,pub_exponent,priv_exponent)
         self._pss = self._PSS(self.size/8,randbytes=randbytes)
 
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        del state["_pss"]
+        return state
+
+    def __setstate__(self,state):
+        self.__dict__.update(state)
+        self._pss = self._PSS(self.size/8,randbytes=randbytes)
+
     def fingerprint(self):
         hash = sha1("RSAKeyWithPSS %s %s" % (self.modulus,self.pub_exponent,))
         return hash.hexdigest()
