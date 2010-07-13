@@ -188,6 +188,8 @@ class _signedimp_util:
             bytes.append(chr((n & 0x00FF0000) >> 16))
             bytes.append(chr((n & 0xFF000000) >> 24))
             n = n >> 32
+        while len(bytes) < 3:
+            bytes.append("\x00")
         bytes = "".join(reversed(bytes))
         return bytes[-3:]
 
