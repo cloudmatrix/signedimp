@@ -321,9 +321,11 @@ else:
             self.assertNotEquals(p.wait(),0)
 
         def test_unchecked_modules_fails(self):
-            signedimp.tools.sign_cxfreeze_app(self.distdir,check_modules=[])
-            p = popen(self.scriptexe)
-            self.assertNotEquals(p.wait(),0)
+            #  cxfreeze on win32 doesn't import any non-builtin modules.
+            if sys.platform != "win32":
+                signedimp.tools.sign_cxfreeze_app(self.distdir,check_modules=[])
+                p = popen(self.scriptexe)
+                self.assertNotEquals(p.wait(),0)
 
         def test_disabled_check_modules_succeeds(self):
             signedimp.tools.sign_cxfreeze_app(self.distdir,check_modules=False)
