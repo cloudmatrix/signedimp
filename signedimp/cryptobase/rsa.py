@@ -60,6 +60,12 @@ class RSAKey(object):
     def get_public_key(self):
         return self.__class__(self.modulus,self.pub_exponent)
 
+    def __eq__(self,other):
+        return self.__dict__ == other.__dict__
+
+    def __ne__(self,other):
+        return self.__dict__ != other.__dict__
+
     def __repr__(self):
         if self.priv_exponent is not None:
             return "%s(%s,%s,%s)" % (self.__class__.__name__,self.modulus,
@@ -97,9 +103,11 @@ class RSAKeyWithPSS(RSAKey):
     def __getstate__(self):
         state = self.__dict__.copy()
         del state["_pss"]
+        state["randbytes"] = self._pss.randbytes
         return state
 
     def __setstate__(self,state):
+        randbytes = state.pop("randbytes",None)
         self.__dict__.update(state)
         self._pss = self._PSS(self.size/8,randbytes=randbytes)
 

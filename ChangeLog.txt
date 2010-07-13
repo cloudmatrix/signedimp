@@ -2,6 +2,9 @@
 v0.1.2
 
     * fixed bug in pure-python b64decode method.
+    * made RSAKeyWithPSS objects pickleable.
+    * added RSAKey.save_to_file and RSAKey.load_from_file for storing keys 
+      on disk in an encrypted format.
 
 v0.1.1
 

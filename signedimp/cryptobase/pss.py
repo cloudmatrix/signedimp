@@ -114,6 +114,9 @@ class PSS(object):
         self.mgf = mgf
         self.salt_length = saltlen
 
+    def __eq__(self,other):
+        return self.__dict__ == other.__dict__
+
     def encode(self,M):
         """Encode the message M into a signature."""
         emBits = self.size*8 - 1
