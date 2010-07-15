@@ -8,11 +8,7 @@ if sys.version_info > (3,):
     setup_kwds["test_suite"] = "signedimp.tests"
     setup_kwds["use_2to3"] = True
 else:
-    try:
-        from setuptools import setup
-        setup_kwds["test_suite"] = "signedimp.tests"
-    except ImportError:
-        from distutils.core import setup
+    from distutils.core import setup
 
 #  This awfulness is all in aid of grabbing the version number out
 #  of the source code, rather than having to repeat it here.  Basically,
