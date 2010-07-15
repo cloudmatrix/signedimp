@@ -1,4 +1,10 @@
 
+v0.1.3
+
+    * When bootstrapping a frozen executable, check whether signedimp is
+      already present and shortcut if so. (This is needed mostly for smooth
+      integration with esky on win32).
+
 v0.1.2
 
     * fixed bug in pure-python b64decode method.

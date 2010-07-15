@@ -223,37 +223,48 @@ def sign_py2exe_app(appdir,key=None,hash="sha1",check_modules=None):
     """
     if check_modules is None:
         check_modules = ["_memimporter"]
+    do_check_modules = (check_modules != False)
     #  Since the public key will be embedded in the executables, it's OK to
     #  generate a throw-away key that's purely for signing this particular app.
     if key is None:
         key = RSAKeyWithPSS.generate()
+    pubkey = key.get_public_key()
     #  Built the bootstrapping code needed for each executable.
     #  We init the bootstrap objects inside a function so they get their own
     #  namespace; py2exe's own bootstrap code does a "del sys" which would
     #  play havoc with the import machinery.
+    bscodestr = get_bootstrap_code(indent="    ")
     bscode =  """
 import sys
+if %(do_check_modules)r and "signedimp" not in sys.modules:
+    for mod in sys.modules:
+        if mod in sys.builtin_module_names:
+            continue
+        if mod not in %(check_modules)r:
+            err = "module '%%s' already loaded, integrity checks impossible"
+            sys.stderr.write(err %% (mod,))
+            sys.stderr.write("\\nTerminating the program.\\n")
+            sys.exit(1)
+
 def _signedimp_init():
-    %s
+    %(bscodestr)s
     class _signedimp_exports:
         pass
     for nm in __all__:
         setattr(_signedimp_exports,nm,staticmethod(locals()[nm]))
     return _signedimp_exports
 signedimp = _signedimp_init()
-if %s:
-    for mod in sys.modules:
-        if mod not in sys.builtin_module_names and mod not in %s:
-            err = "module '%%s' already loaded, integrity checks impossible"
-            sys.stderr.write(err %% (mod,))
-            sys.stderr.write("\\nTerminating the program.\\n")
-            sys.exit(1)
-k = signedimp.%s
-signedimp.SignedImportManager([k]).install()
-""" % (get_bootstrap_code(indent="    "),
-       check_modules != False,
-       repr(check_modules),
-       repr(key.get_public_key()),)
+
+k = signedimp.%(pubkey)r
+try:
+    if sys.meta_path[0].__class__.__name__ == "SignedImportManager":
+        sys.meta_path[0].valid_keys.append(k)
+    else:
+        signedimp.SignedImportManager([k]).install()
+except (IndexError,AttributeError):
+    signedimp.SignedImportManager([k]).install()
+
+""" % locals()
     bscode = compile(bscode,"__main__.py","exec")
     #  Hack the bootstrap code into the start of each script to be run.
     #  This unfortunately depends on some inner details of the py2exe format.
@@ -312,34 +323,44 @@ def sign_py2app_bundle(appdir,key=None,hash="sha1",check_modules=None):
         check_modules = ["codecs","encodings","encodings.__builtin__",
                          "encodings.codecs","encodings.utf_8",
                          "encodings.aliases","encodings.encodings","readline"]
+    do_check_modules = (check_modules != False)
     #  Since the public key will be embedded in the executables, it's OK to
     #  generate a throw-away key that's purely for signing this particular app.
     if key is None:
         key = RSAKeyWithPSS.generate()
+    pubkey = key.get_public_key()
     #  Build the bootstrap code and put it at start of __boot__.py.
+    bscodestr = get_bootstrap_code(indent="    ")
     bscode =  """
 import sys
+if %(do_check_modules)r and "signedimp" not in sys.modules:
+    for mod in sys.modules:
+        if mod in sys.builtin_module_names:
+            continue
+        if mod not in %(check_modules)r:
+            err = "module '%%s' already loaded, integrity checks impossible"
+            sys.stderr.write(err %% (mod,))
+            sys.stderr.write("\\nTerminating the program.\\n")
+            sys.exit(1)
+
 def _signedimp_init():
-    %s
+    %(bscodestr)s
     class _signedimp_exports:
         pass
     for nm in __all__:
         setattr(_signedimp_exports,nm,staticmethod(locals()[nm]))
     return _signedimp_exports
 signedimp = _signedimp_init()
-if %s:
-    for mod in sys.modules:
-        if mod not in sys.builtin_module_names and mod not in %s:
-            err = "module '%%s' already loaded, integrity checks impossible"
-            sys.stderr.write(err %% (mod,))
-            sys.stderr.write("\\nTerminating the program.\\n")
-            sys.exit(1)
-k = signedimp.%s
-signedimp.SignedImportManager([k]).install()
-""" % (get_bootstrap_code(indent="    "),
-       check_modules != False,
-       repr(check_modules),
-       repr(key.get_public_key()),)
+
+k = signedimp.%(pubkey)r
+try:
+    if sys.meta_path[0].__class__.__name__ == "SignedImportManager":
+        sys.meta_path[0].valid_keys.append(k)
+    else:
+        signedimp.SignedImportManager([k]).install()
+except (IndexError,AttributeError):
+    signedimp.SignedImportManager([k]).install()
+""" % locals()
     bsfile = os.path.join(appdir,"Contents","Resources","__boot__.py")
     with open(bsfile,"r+") as f:
         oldcode = f.read()
@@ -398,34 +419,45 @@ def sign_cxfreeze_app(appdir,key=None,hash="sha1",check_modules=None):
         check_modules = ["codecs","encodings","encodings.__builtin__",
                          "encodings.codecs","encodings.utf_8",
                          "encodings.aliases","encodings.encodings"]
+    do_check_modules = (check_modules != False)
     #  Since the public key will be embedded in the executables, it's OK to
     #  generate a throw-away key that's purely for signing this particular app.
     if key is None:
         key = RSAKeyWithPSS.generate()
+    pubkey = key.get_public_key()
     #  Build the bootstrap code to be inserted into each executable.  Since
     #  it replaces the cx_Freeze__init__ script it needs to exec that once
     #  the signed imports are in place.
     bscode_tmplt =  """
 import sys
-if %s:
+if %(do_check_modules)r and "signedimp" not in sys.modules:
     for mod in sys.modules:
-        if mod not in sys.builtin_module_names and mod not in %s:
+        if mod == "signedimp" or mod.startswith("signedimp."):
+            continue
+        if mod in sys.builtin_module_names:
+            continue
+        if mod not in %(check_modules)r:
             err = "module '%%s' already loaded, integrity checks impossible"
             sys.stderr.write(err %% (mod,))
             sys.stderr.write("\\nTerminating the program.\\n")
             sys.exit(1)
-
 import signedimp
-k = signedimp.%s
-signedimp.SignedImportManager([k]).install()
 
-print FILE_NAME
-print SHARED_ZIP_FILE_NAME
-print EXCLUSIVE_ZIP_FILE_NAME
-print INITSCRIPT_ZIP_FILE_NAME
-if %s:
+k = signedimp.%(pubkey)r
+try:
+    if sys.meta_path[0].__class__.__name__ == "SignedImportManager":
+        sys.meta_path[0].valid_keys.append(k)
+    else:
+        signedimp.SignedImportManager([k]).install()
+except (IndexError,AttributeError):
+    signedimp.SignedImportManager([k]).install()
+
+#  Bootstrap the original cx_Freeze__init__ module.
+#  If it was in the appended zipfile, we're given it as a marshalled string.
+#  If not, we need to search for it in the other zipfiles.
+if %(has_initcode)r:
     import marshal
-    exec marshal.loads(%s)
+    exec marshal.loads(%(initcode)r)
 else:
     import zipimport
     initmod = "cx_Freeze__init__"
@@ -451,16 +483,12 @@ else:
             #  If it contains the init module already, we'll need to
             #  grab its code to bootstrap into it.
             try:
-                initcode = zf.read(initmod+".pyc")[8:]
+                initcode = repr(zf.read(initmod+".pyc")[8:])
             except KeyError:
                 initcode = ""
             #  Store our own code as the cxfreeze init module
-            bssrc = bscode_tmplt % (check_modules != False,
-                                    repr(check_modules),
-                                    repr(key.get_public_key()),
-                                    bool(initcode),
-                                    repr(initcode),
-                    )
+            has_initcode = bool(initcode)
+            bssrc = bscode_tmplt % locals()
             bscode = imp.get_magic() + struct.pack("<i",time.time())
             bscode += marshal.dumps(compile(bssrc,initmod+".py","exec"))
             zf.writestr(initmod+".pyc",bscode)

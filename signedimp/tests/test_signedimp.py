@@ -92,7 +92,6 @@ class TestSignedImp_DefaultImport(unittest.TestCase):
                         "sim.install()",
                         "import signedimp_test.test1",
                         "print signedimp_test.test1.value")
-        print p.stderr.read()
         self.assertEquals(p.wait(),0)
         self.assertEquals(p.stdout.read().strip(),"7")
  
@@ -150,7 +149,6 @@ class TestSignedImp_DefaultImport(unittest.TestCase):
                         "sim.install()",
                         "import signedimp_test.test1",
                         "print signedimp_test.test1.value")
-        print p.stderr.read()
         self.assertEquals(p.wait(),0)
         self.assertEquals(p.stdout.read().strip(),"7")
         p = self._runpy("from signedimp import SignedImportManager",
@@ -303,7 +301,6 @@ else:
         def test_signed_app_succeeds(self):
             signedimp.tools.sign_cxfreeze_app(self.distdir)
             p = popen(self.scriptexe)
-            print p.stderr.read()
             self.assertEquals(p.wait(),0)
 
         def test_unsigned_app_fails(self):
