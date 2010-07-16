@@ -386,13 +386,25 @@ class SignedImportManager(object):
     def __init__(self,valid_keys=[]):
         self.valid_keys = [k for k in valid_keys]
         self.hashdb = SignedHashDatabase(self.valid_keys)
+        self._hashdb_cache = {}
+
+    def add_valid_key(self,key):
+        self.valid_keys.append(key)
+        self.reinstall()
 
     def install(self):
         """Install this manager into the process import machinery."""
         if self not in sys.meta_path:
             sys.meta_path.insert(0,self)
+        self.reinstall()
+
+    def reinstall(self):
+        """Notify the manager that new imports may be available."""
         #  Try to speed things up by loading faster crypto primitives.
         for mod in ("signedimp.crypto",):
+            for modnm in sys.modules.keys():
+                if modnm == mod or modnm.startswith(mod+"."):
+                    del sys.modules[modnm]
             try:
                 loader = self.find_module(mod)
                 if loader is not None:
@@ -462,7 +474,7 @@ class SignedImportManager(object):
             if importer is None:
                 importer = DefaultImporter(path)
         return importer
-        
+
 
 class SignedLoader:
     """Wrapper class for managing signed imports from a specific loader.
@@ -476,13 +488,22 @@ class SignedLoader:
     def __init__(self,manager,loader):
         self.manager = manager
         self.loader = loader
-        self.hashdb = SignedHashDatabase(manager.valid_keys)
         try:
-            hashdata = self.loader.get_data(HASHFILE_NAME)
+            hashfile = self.get_datafilepath(HASHFILE_NAME)
+            if hashfile is None:
+                    hashdata = self.loader.get_data(HASHFILE_NAME)
+                    self.hashdb = SignedHashDatabase(manager.valid_keys)
+                    self.hashdb.parse_hash_data(hashdata)
+            else:
+                try:
+                    self.hashdb = manager._hashdb_cache[hashfile]
+                except KeyError:
+                    hashdata = self.loader.get_data(HASHFILE_NAME)
+                    self.hashdb = SignedHashDatabase(manager.valid_keys)
+                    self.hashdb.parse_hash_data(hashdata)
+                    manager._hashdb_cache[hashfile] = self.hashdb
         except (AttributeError,EnvironmentError):
-            pass
-        else:
-            self.hashdb.parse_hash_data(hashdata)
+            self.hashdb = SignedHashDatabase(manager.valid_keys)
 
     def __getattr__(self,attr):
         """Pass through simple attributes of the wrapped loader.
@@ -534,7 +555,15 @@ class SignedLoader:
 
     def is_package(self,fullname):
         """Check whether the given module is a package."""
-        return self.loader.is_package(fullname)
+        #  The py2exe ZipExtensionLoader (at least) seems to be broken here,
+        #  raising an ImportError for bundled DLLs.  We do a double-check then
+        #  just report False.
+        try:
+            return self.loader.is_package(fullname)
+        except ImportError:
+            if self.loader.find_module(fullname) is not None:
+                return False
+            raise
 
     def get_code(self,fullname):
         """Get the code object for the given module.
@@ -557,6 +586,25 @@ class SignedLoader:
     def get_filename(self,fullname):
         """Get the filename associated with the given module."""
         return self.loader.get_filename(fullname)
+
+    def get_datafilepath(self,path):
+        """Get the full path for the given data file.
+
+        If a full path cannot be constructed, None is returned.
+
+        This isn't an official PEP-302 method, so we hack it ourselves for the
+        standard import hooks and leave the option open to third-party modules
+        to implement it if they wish.
+        """
+        try:
+            gdfp = self.loader.get_datafilepath
+        except AttributeError:
+            try:
+                return os.path.join(self.loader.archive,path)
+            except AttributeError:
+                return None
+        else:
+            return gdfp(path)
 
     def verify_module(self,fullname,data):
         """Verify the given module data against our signature database."""
@@ -855,6 +903,19 @@ class _DefaultImporter:
         if self.base_path is None:
             raise OSError
         return open(os.path.join(self.base_path,path),"rb").read()
+
+    def get_filename(self,fullname):
+        """Get the code object for the given module."""
+        file,pathname,description = self._get_module_info(fullname)
+        if file is not None:
+            file.close()
+        return pathname
+
+    def get_datafilepath(self,path):
+        """Get the full path for the given data file."""
+        if self.base_path is None:
+            return None
+        return os.path.join(self.base_path,path)
 
 
 
