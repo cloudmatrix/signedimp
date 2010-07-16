@@ -411,8 +411,9 @@ else:
     #  Sign the main library.zip
     libdir = os.path.join(appdir,"Contents","Resources","lib")
     libdir = os.path.join(libdir,"python%d.%d"%sys.version_info[:2])
-    libzip = os.path.join(libdir,"site-packages.zip")
-    sign_zipfile(libzip,key,hash=hash)
+    for nm in os.listdir(libdir):
+        if nm.endswith(".zip"):
+            sign_zipfile(os.path.join(libdir,nm),key,hash=hash)
     #  Sign a variety of potential code dirs
     try:
         sign_directory(os.path.join(libdir,"lib-dynload"),key,hash=hash)
