@@ -233,10 +233,23 @@ def sign_py2exe_app(appdir,key=None,hash="sha1",check_modules=None):
     #  We init the bootstrap objects inside a function so they get their own
     #  namespace; py2exe's own bootstrap code does a "del sys" which would
     #  play havoc with the import machinery.
-    bscodestr = get_bootstrap_code(indent="    ")
+    bscodestr = get_bootstrap_code(indent="        ")
     bscode =  """
 import sys
-if %(do_check_modules)r and "signedimp" not in sys.modules:
+
+#  Try to figure out if signed imports are already enabled.
+#  We can't use isinstance() since there may be multiple copies of the
+#  signedimp module created by different bootstrapping codes.
+try:
+    if sys.meta_path[0].__class__.__name__ == "SignedImportManager":
+        signedimp_installed = True
+    else:
+        signedimp_installed = False
+except (IndexError,AttributeError):
+    signedimp_installed = False
+
+#  Check the boot-time modules if necessary.
+if %(do_check_modules)r and not signedimp_installed:
     for mod in sys.modules:
         if mod in sys.builtin_module_names:
             continue
@@ -246,22 +259,29 @@ if %(do_check_modules)r and "signedimp" not in sys.modules:
             sys.stderr.write("\\nTerminating the program.\\n")
             sys.exit(1)
 
-def _signedimp_init():
-    %(bscodestr)s
-    class _signedimp_exports:
+#  Get a reference to the signedimp module, possibly by creating
+#  a private copy from raw code.
+signedimp = None
+if signedimp_installed:
+    try:
+        import signedimp
+    except ImportError:
         pass
-    for nm in __all__:
-        setattr(_signedimp_exports,nm,staticmethod(locals()[nm]))
-    return _signedimp_exports
-signedimp = _signedimp_init()
+if signedimp is None:
+    def _signedimp_init():
+        %(bscodestr)s
+        class _signedimp_exports:
+            pass
+        for nm in __all__:
+            setattr(_signedimp_exports,nm,staticmethod(locals()[nm]))
+        return _signedimp_exports
+    signedimp = _signedimp_init()
 
+#  Add the specific key into the signed import machinery.
 k = signedimp.%(pubkey)r
-try:
-    if sys.meta_path[0].__class__.__name__ == "SignedImportManager":
-        sys.meta_path[0].valid_keys.append(k)
-    else:
-        signedimp.SignedImportManager([k]).install()
-except (IndexError,AttributeError):
+if signedimp_installed:
+    sys.meta_path[0].add_valid_key(k)
+else:
     signedimp.SignedImportManager([k]).install()
 
 """ % locals()
@@ -333,7 +353,20 @@ def sign_py2app_bundle(appdir,key=None,hash="sha1",check_modules=None):
     bscodestr = get_bootstrap_code(indent="    ")
     bscode =  """
 import sys
-if %(do_check_modules)r and "signedimp" not in sys.modules:
+
+#  Try to figure out if signed imports are already enabled.
+#  We can't use isinstance() since there may be multiple copies of the
+#  signedimp module created by different bootstrapping codes.
+try:
+    if sys.meta_path[0].__class__.__name__ == "SignedImportManager":
+        signedimp_installed = True
+    else:
+        signedimp_installed = False
+except (IndexError,AttributeError):
+    signedimp_installed = False
+
+#  Check the boot-time modules if necessary.
+if %(do_check_modules)r and not signedimp_installed:
     for mod in sys.modules:
         if mod in sys.builtin_module_names:
             continue
@@ -343,23 +376,31 @@ if %(do_check_modules)r and "signedimp" not in sys.modules:
             sys.stderr.write("\\nTerminating the program.\\n")
             sys.exit(1)
 
-def _signedimp_init():
-    %(bscodestr)s
-    class _signedimp_exports:
+#  Get a reference to the signedimp module, possibly by creating
+#  a private copy from raw code.
+signedimp = None
+if signedimp_installed:
+    try:
+        import signedimp
+    except ImportError:
         pass
-    for nm in __all__:
-        setattr(_signedimp_exports,nm,staticmethod(locals()[nm]))
-    return _signedimp_exports
-signedimp = _signedimp_init()
+if signedimp is None:
+    def _signedimp_init():
+        %(bscodestr)s
+        class _signedimp_exports:
+            pass
+        for nm in __all__:
+            setattr(_signedimp_exports,nm,staticmethod(locals()[nm]))
+        return _signedimp_exports
+    signedimp = _signedimp_init()
 
+#  Add the specific key into the signed import machinery.
 k = signedimp.%(pubkey)r
-try:
-    if sys.meta_path[0].__class__.__name__ == "SignedImportManager":
-        sys.meta_path[0].valid_keys.append(k)
-    else:
-        signedimp.SignedImportManager([k]).install()
-except (IndexError,AttributeError):
+if signedimp_installed:
+    sys.meta_path[0].add_valid_key(k)
+else:
     signedimp.SignedImportManager([k]).install()
+
 """ % locals()
     bsfile = os.path.join(appdir,"Contents","Resources","__boot__.py")
     with open(bsfile,"r+") as f:
@@ -430,7 +471,20 @@ def sign_cxfreeze_app(appdir,key=None,hash="sha1",check_modules=None):
     #  the signed imports are in place.
     bscode_tmplt =  """
 import sys
-if %(do_check_modules)r and "signedimp" not in sys.modules:
+
+#  Try to figure out if signed imports are already enabled.
+#  We can't use isinstance() since there may be multiple copies of the
+#  signedimp module created by different bootstrapping codes.
+try:
+    if sys.meta_path[0].__class__.__name__ == "SignedImportManager":
+        signedimp_installed = True
+    else:
+        signedimp_installed = False
+except (IndexError,AttributeError):
+    signedimp_installed = False
+
+#  Check the boot-time modules if necessary.
+if %(do_check_modules)r and not signedimp_installed:
     for mod in sys.modules:
         if mod == "signedimp" or mod.startswith("signedimp."):
             continue
@@ -441,15 +495,16 @@ if %(do_check_modules)r and "signedimp" not in sys.modules:
             sys.stderr.write(err %% (mod,))
             sys.stderr.write("\\nTerminating the program.\\n")
             sys.exit(1)
+
+#  Since it's bundled into a zipfile, we always get at signedimp by
+#  just importing it.  This will re-use an existing version if loaded.
 import signedimp
 
+#  Add the specific key into the signed import machinery.
 k = signedimp.%(pubkey)r
-try:
-    if sys.meta_path[0].__class__.__name__ == "SignedImportManager":
-        sys.meta_path[0].valid_keys.append(k)
-    else:
-        signedimp.SignedImportManager([k]).install()
-except (IndexError,AttributeError):
+if signedimp_installed:
+    sys.meta_path[0].add_valid_key(k)
+else:
     signedimp.SignedImportManager([k]).install()
 
 #  Bootstrap the original cx_Freeze__init__ module.
