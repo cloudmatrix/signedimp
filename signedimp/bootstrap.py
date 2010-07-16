@@ -568,8 +568,6 @@ class SignedLoader:
                     self.hashdb.parse_hash_data(hashdata)
                     manager._hashdb_cache[hashfile] = self.hashdb
         except (AttributeError,EnvironmentError):
-            if self.loader is not BuiltinImporter:
-                raise
             self.hashdb = SignedHashDatabase(manager.valid_keys)
 
     def __getattr__(self,attr):
