@@ -953,7 +953,11 @@ class _DefaultImporter:
         """
         if self.base_path is None:
             raise OSError
-        return open(os.path.join(self.base_path,path),"rb").read()
+        f = open(os.path.join(self.base_path,path),"rb")
+        try:
+            return f.read()
+        finally:
+            f.close()
 
     def get_filename(self,fullname):
         """Get the code object for the given module."""
