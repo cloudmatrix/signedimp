@@ -66,7 +66,12 @@ def _signedimp_make_os_module():
             @staticmethod
             def join(*args):
                 """Local re-implementation of os.path.join."""
-                return SEP.join(args)
+                bits = []
+                for bit in args:
+                    while bit.endswith(SEP) and bit != SEP:
+                        bit = bit[:-1]
+                    bits.append(bit)
+                return SEP.join(bits)
             @staticmethod
             def exists(path):
                 """Local re-implementation of os.path.exists."""
@@ -462,7 +467,7 @@ class SignedImportManager(object):
         while True:
             hashfile = os.path.join(path,HASHFILE_NAME)
             if hashfile in self._hashdb_cache:
-                return self._hashdb_cache[hashfile]
+                return path,self._hashdb_cache[hashfile]
             if os.path.exists(hashfile):
                 f = open(hashfile,"rb")
                 try:
@@ -472,7 +477,7 @@ class SignedImportManager(object):
                 hashdb = SignedHashDatabase(self.valid_keys)
                 hashdb.parse_hash_data(hashdata)
                 self._hashdb_cache[hashfile] = hashdb
-                return hashdb
+                return path,hashdb
             new_path = os.path.dirname(path)
             if path == new_path:
                 break
@@ -480,7 +485,7 @@ class SignedImportManager(object):
 
     def _imp_load_dynamic(self,name,pathname,file=None):
         """Replacement for imp.load_dynamic."""
-        hashdb = self._find_hashdb(pathname)
+        (basepath,hashdb) = self._find_hashdb(pathname)
         if hashdb is None:
             raise IntegrityCheckMissing(pathname)
         f = open(pathname,"rb")
@@ -488,7 +493,10 @@ class SignedImportManager(object):
             data = f.read()
         finally:
             f.close()
-        hashdb.verify("m",name,data)
+        try:
+            hashdb.verify("m",name,data)
+        except IntegrityCheckError:
+            hashdb.verify("d",pathname[len(basepath)+1:],data)
         if file is not None:
             return self._orig_load_dynamic(name,pathname,file)
         else:
@@ -496,7 +504,7 @@ class SignedImportManager(object):
 
     def _imp_load_compiled(self,name,pathname,file=None):
         """Replacement for imp.load_compiled."""
-        hashdb = self._find_hashdb(pathname)
+        (basepath,hashdb) = self._find_hashdb(pathname)
         if hashdb is None:
             raise IntegrityCheckMissing(pathname)
         f = open(pathname,"rb")
@@ -504,7 +512,10 @@ class SignedImportManager(object):
             data = f.read()
         finally:
             f.close()
-        hashdb.verify("m",name,data)
+        try:
+            hashdb.verify("m",name,data)
+        except IntegrityCheckError:
+            hashdb.verify("d",pathname[len(basepath)+1:],data)
         if file is not None:
             return self._orig_load_compiled(name,pathname,file)
         else:
@@ -512,7 +523,7 @@ class SignedImportManager(object):
 
     def _imp_load_source(self,name,pathname,file=None):
         """Replacement for imp.load_source."""
-        hashdb = self._find_hashdb(pathname)
+        (basepath,hashdb) = self._find_hashdb(pathname)
         if hashdb is None:
             raise IntegrityCheckMissing(pathname)
         f = open(pathname,"rb")
@@ -520,7 +531,10 @@ class SignedImportManager(object):
             data = f.read()
         finally:
             f.close()
-        hashdb.verify("m",name,data)
+        try:
+            hashdb.verify("m",name,data)
+        except IntegrityCheckError:
+            hashdb.verify("d",pathname[len(basepath)+1:],data)
         if file is not None:
             return self._orig_load_source(name,pathname,file)
         else:
@@ -554,6 +568,8 @@ class SignedLoader:
                     self.hashdb.parse_hash_data(hashdata)
                     manager._hashdb_cache[hashfile] = self.hashdb
         except (AttributeError,EnvironmentError):
+            if self.loader is not BuiltinImporter:
+                raise
             self.hashdb = SignedHashDatabase(manager.valid_keys)
 
     def __getattr__(self,attr):
