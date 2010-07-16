@@ -21,7 +21,13 @@ module to an appropriate function.
 """
 
 
-from signedimp.cryptobase.sha1 import sha1
+import sys
+
+if "_sha" in sys.builtin_module_names:
+    import _sha
+    sha1 = _sha.new
+else:
+    from signedimp.cryptobase.sha1 import sha1
 
 class math:
     """Math utilities for PSS, designed to be easily replaced."""
