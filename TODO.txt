@@ -1,5 +1,4 @@
 
 
- * forcibly block unsigned imports while initialising the bootstrap code
  * overwrite __import__ and imp.load_*
 

@@ -69,7 +69,7 @@ def get_bootstrap_code(indent=""):
         mod = __import__(mod,fromlist=["*"])
         src = inspect.getsource(mod)
         for ln in src.split("\n"):
-            if "from signedimp.cryptobase." in ln:
+            if ln.strip().startswith("from signedimp.cryptobase."):
                 lnstart = ln.find("from")
                 newindent = indent + ln[:lnstart]
                 newmod = ln.strip()[5:].split()[0]

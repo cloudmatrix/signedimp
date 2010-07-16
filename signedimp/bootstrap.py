@@ -24,30 +24,16 @@ __all__ = ["HASHFILE_NAME","IntegrityCheckError",
            "SignedImportManager","RSAKeyWithPSS"]
 
 
-#  Careful now, we can't just import things willy-nilly.  The following
-#  tries to grab the things we absolutely need without polluting the
-#  global namespace.
+#  Careful now, we can't just import things willy-nilly.  Make sure you
+#  only use builtin modules at the top level.
 
-def _signedimp_mod_available(modname):
-    """Check whether the named module is safely available.
-
-    To be safe it must be either built into the interpreter, or already
-    loaded in sys.modules.
-    """
-    if modname in sys.builtin_module_names:
-        return True
-    if sys.modules.get(modname) is not None:
-        return True
-    if imp.is_frozen(modname):
-        return True
-    return False
 
 #  The sys module is always builtin, since it's needed to do imports.
 import sys
 
 #  Get the "imp" module so we can simulate the standard import machinery.
 #  It must be builtin or this whole exercise is pointless.
-if not _signedimp_mod_available("imp"):
+if "imp" not in sys.builtin_module_names:
     err = "'imp' module is not safely available, integrity checks impossible"
     raise IntegrityCheckMissing(err)
 import imp
@@ -55,7 +41,7 @@ import imp
 
 #  Get the "marshal" module so we can treat code objects as bytes.
 #  It must be builtin or this whole exercise is pointless.
-if not _signedimp_mod_available("marshal"):
+if "marshal" not in sys.builtin_module_names:
     err = "'marshal' module is not safely available, " \
           "integrity checks impossible"
     raise IntegrityCheckMissing(err)
@@ -65,13 +51,10 @@ import marshal
 #  Get a minimal simulation of the "os" module.
 #  It must be builtin or this whole exercise is pointless.
 def _signedimp_make_os_module():
-    if _signedimp_mod_available("os") and _signedimp_mod_available("os.path"):
-        import os
-        return os
-    if _signedimp_mod_available("posix"):
+    if "posix" in sys.builtin_module_names:
         from posix import stat
         SEP = "/"
-    elif _signedimp_mod_available("nt"):
+    elif "nt" in sys.builtin_module_names:
         from nt import stat
         SEP = "\\"
     else:
@@ -131,6 +114,8 @@ class _signedimp_util:
         if hashlib is not available safely.  It uses the pure-python MD5 code
         from the PyPy project, which is available under the Python License.
         """
+        #  The signedimp.tools.get_bootstrap_code() function will inline the
+        #  raw code from signedimp.cryptobase.md5
         if not _signedimp_util._md5type:
             from signedimp.cryptobase.md5 import MD5Type
             _signedimp_util._md5type = MD5Type
@@ -145,6 +130,8 @@ class _signedimp_util:
         if hashlib is not available safely.  It uses the pure-python SHA1 code
         from the PyPy project, which is available under the Python License.
         """
+        #  The signedimp.tools.get_bootstrap_code() function will inline the
+        #  raw code from signedimp.cryptobase.sha1
         if not _signedimp_util._sha1type:
             from signedimp.cryptobase.sha1 import sha1
             _signedimp_util._sha1type = sha1
@@ -158,6 +145,8 @@ class _signedimp_util:
         This is horribly slow and probably broken, but it's the best we can do
         if PyCrypto is not available safely.
         """
+        #  The signedimp.tools.get_bootstrap_code() function will inline the
+        #  raw code from signedimp.cryptobase.rsa
         if not _signedimp_util._RSAKeyWithPSS:
             from signedimp.cryptobase.rsa import RSAKeyWithPSS
             _signedimp_util._RSAKeyWithPSS = RSAKeyWithPSS
@@ -224,57 +213,49 @@ class _signedimp_util:
         """Try to make the best versions of the utility funcs we can.
 
         This method should be called whenever a new set of imports become
-        available.  It will interrogate the runtime environment and try to
-        find better implementations of the utility functions defined on
-        this class.
+        available.  It will attempt to import and use better implementations
+        of the utility functions defined on this class.
         """
-        if _signedimp_mod_available("base64"):
-            try:
-                import base64
-                _signedimp_util.b64decode = staticmethod(base64.b64decode)
-            except ImportError:
-                pass
-        if _signedimp_mod_available("signedimp.crypto"):
-            # Awesome, we can use our crypto primitives directly
-            try:
-                import signedimp.crypto.md5
-                import signedimp.crypto.sha1
-                import signedimp.crypto.rsa
-                _signedimp_util.md5 = md5.md5
-                _signedimp_util.sha1 = sha1.sha1
-                _signedimp_util.RSAKeyWithPSS = rsa.RSAKeyWithPSS
-            except ImportError:
-                pass
-        elif _signedimp_mod_available("hashlib"):
-            # Great, we can use hashlib directly
+        #  Try to use native b64decode
+        try:
+            import base64
+            _signedimp_util.b64decode = staticmethod(base64.b64decode)
+        except ImportError:
+            pass
+        #  Try to use our fast-path crypto library
+        try:
+            from signedimp.crypto import md5
+            from signedimp.crypto import sha1
+            from signedimp.crypto import rsa
+            _signedimp_util.md5 = md5.md5
+            _signedimp_util.sha1 = sha1.sha1
+            _signedimp_util.RSAKeyWithPSS = rsa.RSAKeyWithPSS
+        except ImportError:
+            # Try to use hashlib
             try:
                 import hashlib
                 _signedimp_util.md5 = hashlib.md5
                 _signedimp_util.sha1 = hashlib.sha1
             except ImportError:
-                pass
-        elif _signedimp_mod_available("_hashlib"):
-            # Good, we can use the exposed openssl interface directly
-            try:
-                import _hashlib
-                _signedimp_util.md5 = _hashlib.openssl_md5
-                _signedimp_util.sha1 = _hashlib.openssl_sha1
-            except (ImportError,AttributeError):
-                pass
-        else:
-            if _signedimp_mod_available("_md5"):
-                #  OK, at least md5 is builtin
-                import _md5
-                _signedimp_util.md5 = _md5.new
-            if _signedimp_mod_available("_sha"):
-                #  OK, at least sha1 is builtin
-                import _sha
-                _signedimp_util.sha1 = _sha.new
+                # Try to use _hashlib
+                try:
+                    import _hashlib
+                    _signedimp_util.md5 = _hashlib.openssl_md5
+                    _signedimp_util.sha1 = _hashlib.openssl_sha1
+                except (ImportError,AttributeError):
+                    #  Try to use _md5 and _sha
+                    try:
+                        import _md5
+                        _signedimp_util.md5 = _md5.new
+                    except ImportError:
+                        pass
+                    try:
+                        import _sha
+                        _signedimp_util.sha1 = _sha.new
+                    except ImportError:
+                        pass
         #  If all else fails, we've left them as pure-python implementations
 
-
-# We might be lucky and have some modules availabe...
-_signedimp_util.recreate()
 
 
 class SignedHashDatabase(object):
@@ -401,16 +382,6 @@ class SignedImportManager(object):
     def reinstall(self):
         """Notify the manager that new imports may be available."""
         #  Try to speed things up by loading faster crypto primitives.
-        for mod in ("signedimp.crypto",):
-            for modnm in sys.modules.keys():
-                if modnm == mod or modnm.startswith(mod+"."):
-                    del sys.modules[modnm]
-            try:
-                loader = self.find_module(mod)
-                if loader is not None:
-                    loader.load_module(mod)
-            except (ImportError,IntegrityCheckMissing,):
-                pass
         _signedimp_util.recreate()
 
     def find_module(self,fullname,path=None):
@@ -675,7 +646,7 @@ class BuiltinImporter(object):
     """
 
     @classmethod
-    def find_module(self,fullname):
+    def find_module(self,fullname,path=None):
         if imp.is_builtin(fullname):
             return self
         if imp.is_frozen(fullname):
@@ -920,5 +891,27 @@ class _DefaultImporter:
 
 
 def RSAKeyWithPSS(*args,**kwds):
+    """Wrapper to expose RSAKeyWithPSS at the top-level of the module."""
     return _signedimp_util.RSAKeyWithPSS(*args,**kwds)
+
+
+#  Try to speed up initial imports by loading builtin or frozen utility mods.
+#  We forcibly block import of non-builtin-or-frozen modules, so that we
+#  can load frozen modules without fearing that they'll import something 
+#  unsafe under the hood.
+
+class BuiltinOnlyImporter(BuiltinImporter):
+    """Meta-path hook to only permit import of builtin or frozen modules.
+
+    This import hook claims to be able to import any module, but will succeed
+    only for builtin or frozen modules.
+    """
+    @classmethod
+    def find_module(self,fullname,path=None):
+        return self
+
+sys.meta_path.insert(0,BuiltinOnlyImporter)
+_signedimp_util.recreate()
+del sys.meta_path[0]
+
 
