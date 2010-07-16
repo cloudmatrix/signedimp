@@ -74,6 +74,12 @@ class RSAKey(object):
             return "%s(%s,%s)" % (self.__class__.__name__,self.modulus,
                                   self.pub_exponent,)
 
+    def __getstate__(self):
+        return self.__dict__.copy()
+
+    def __setstate__(self,state):
+        self.__dict__.update(state)
+
     def encrypt(self,message):
         m = self._math.bytes_to_long(message)
         return self._math.long_to_bytes(pow(m,self.pub_exponent,self.modulus))
@@ -101,15 +107,15 @@ class RSAKeyWithPSS(RSAKey):
         self._pss = self._PSS(self.size/8,randbytes=randbytes)
 
     def __getstate__(self):
-        state = self.__dict__.copy()
-        del state["_pss"]
+        state = super(RSAKeyWithPSS,self).__getstate__()
+        state.pop("_pss",None)
         state["randbytes"] = self._pss.randbytes
         return state
 
     def __setstate__(self,state):
         randbytes = state.pop("randbytes",None)
-        self.__dict__.update(state)
-        self._pss = self._PSS(self.size/8,randbytes=randbytes)
+        state["_pss"] = self._PSS(state["size"]/8,randbytes)
+        super(RSAKeyWithPSS,self).__setstate__(state)
 
     def fingerprint(self):
         hash = sha1("RSAKeyWithPSS %s %s" % (self.modulus,self.pub_exponent,))
@@ -117,16 +123,12 @@ class RSAKeyWithPSS(RSAKey):
 
     def sign(self,message):
         encsig = self._pss.encode(message)
-        m = self._math.bytes_to_long(encsig)
-        signature = pow(m,self.priv_exponent,self.modulus)
-        signature = self._math.long_to_bytes(signature)
+        signature = self.decrypt(encsig)
         return signature.rjust(self.size/8,"\x00")
 
     def verify(self,message,signature):
         signature = signature.rjust(self.size/8,"\x00")
-        m = self._math.bytes_to_long(signature)
-        encsig = pow(m,self.pub_exponent,self.modulus)
-        encsig = self._math.long_to_bytes(encsig)
+        encsig = self.encrypt(signature)
         encsig = encsig.rjust(self.size/8,"\x00")
         return self._pss.verify(message,encsig)
 

@@ -1,7 +1,8 @@
 
 v0.1.3
 
-    * When bootstrapping a frozen executable, check whether signedimp is
+    * use fast RSA primitives when PyCrypto is installed.
+    * when bootstrapping a frozen executable, check whether signedimp is
       already present and shortcut if so. (This is needed mostly for smooth
       integration with esky on win32).
 

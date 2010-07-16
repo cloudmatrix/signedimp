@@ -59,10 +59,44 @@ class RSAKey(RSAKey):
 
     _math = math
 
+    def __init__(self,modulus,pub_exponent,priv_exponent=None,**kwds):
+        super(RSAKey,self).__init__(modulus,pub_exponent,priv_exponent,**kwds)
+        if priv_exponent is not None:
+            self._key = _RSA.construct((modulus,pub_exponent,priv_exponent))
+        else:
+            self._key = _RSA.construct((modulus,pub_exponent))
+
+    def __getstate__(self):
+        state = super(RSAKey,self).__getstate__()
+        state.pop("_key",None)
+        return state
+
+    def __setstate__(self,state):
+        if state["priv_exponent"] is not None:
+            state["_key"] = _RSA.construct((state["modulus"],
+                                            state["pub_exponent"],
+                                            state["priv_exponent"]))
+        else:
+            state["_key"] = _RSA.construct((state["modulus"],
+                                            state["pub_exponent"])),
+        super(RSAKey,self).__setstate__(state)
+
     @classmethod
     def generate(cls,size=2048,randbytes=os.urandom):
         k = _RSA.generate(size,randbytes)
         return cls(k.n,k.e,k.d)
+
+    def encrypt(self,message):
+        return self._key.encrypt(message,"")[0]
+
+    def decrypt(self,message):
+        return self._key.decrypt(message)
+
+    def verify(self,message,signature):
+        try:
+            return super(RSAKey,self).verify(message,signature)
+        except (_RSA.error,ValueError):
+            return False
 
     def save_to_file(self,f,password):
         """Save to given filelike object, encrypted with given password."""
@@ -115,9 +149,10 @@ class RSAKey(RSAKey):
  
         
 
-class RSAKeyWithPSS(RSAKeyWithPSS,RSAKey):
+class RSAKeyWithPSS(RSAKey,RSAKeyWithPSS):
     """Public key using RSS with PSS signature padding scheme."""
 
     _math = math
     _PSS = PSS
+
 

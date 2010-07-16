@@ -1,4 +1,5 @@
 
 
- * faster RSA primitives in signedimp.crypto.rsa
+ * forcibly block unsigned imports while initialising the bootstrap code
+ * overwrite __import__ and imp.load_*
 
