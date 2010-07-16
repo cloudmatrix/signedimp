@@ -3,9 +3,13 @@ v0.1.3
 
     * use fast RSA primitives when PyCrypto is installed.
     * do some simple caching to speed up imports from the same source.
+    * replace imp.load_[dynamic|compiled|source] with custom wrappers.
+        * necessary for good interop with py2exe, which uses imp.load_dynamic
+          to load DLLs from the filesystem.
     * when bootstrapping a frozen executable, check whether signedimp is
-      already present and shortcut if so. (This is needed mostly for smooth
-      integration with esky on win32).
+      already present and shortcut if so.
+        * necessary for good interop with esky on win32, where it tries to
+          chainload into the frozen executable from an existing process.
 
 v0.1.2
 

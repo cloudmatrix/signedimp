@@ -75,6 +75,10 @@ def _signedimp_make_os_module():
                 except EnvironmentError:
                     return False
                 return True
+            @staticmethod
+            def dirname(p):
+                """Local re-implementation of os.path.dirname."""
+                return SEP.join(p.split(SEP)[:-1])
     return os
 os = _signedimp_make_os_module()
 
@@ -377,6 +381,12 @@ class SignedImportManager(object):
         """Install this manager into the process import machinery."""
         if self not in sys.meta_path:
             sys.meta_path.insert(0,self)
+            self._orig_load_dynamic = imp.load_dynamic
+            self._orig_load_compiled = imp.load_compiled
+            self._orig_load_source = imp.load_source
+            imp.load_dynamic = self._imp_load_dynamic
+            imp.load_compiled = self._imp_load_compiled
+            imp.load_source = self._imp_load_source
         self.reinstall()
 
     def reinstall(self):
@@ -445,6 +455,76 @@ class SignedImportManager(object):
             if importer is None:
                 importer = DefaultImporter(path)
         return importer
+
+    def _find_hashdb(self,path):
+        """Find and return the hashdb covering the given path."""
+        path = os.path.dirname(path)
+        while True:
+            hashfile = os.path.join(path,HASHFILE_NAME)
+            if hashfile in self._hashdb_cache:
+                return self._hashdb_cache[hashfile]
+            if os.path.exists(hashfile):
+                f = open(hashfile,"rb")
+                try:
+                    hashdata = f.read()
+                finally:
+                    f.close()
+                hashdb = SignedHashDatabase(self.valid_keys)
+                hashdb.parse_hash_data(hashdata)
+                self._hashdb_cache[hashfile] = hashdb
+                return hashdb
+            new_path = os.path.dirname(path)
+            if path == new_path:
+                break
+            path = new_path
+
+    def _imp_load_dynamic(self,name,pathname,file=None):
+        """Replacement for imp.load_dynamic."""
+        hashdb = self._find_hashdb(pathname)
+        if hashdb is None:
+            raise IntegrityCheckMissing(pathname)
+        f = open(pathname,"rb")
+        try:
+            data = f.read()
+        finally:
+            f.close()
+        hashdb.verify("m",name,data)
+        if file is not None:
+            return self._orig_load_dynamic(name,pathname,file)
+        else:
+            return self._orig_load_dynamic(name,pathname)
+
+    def _imp_load_compiled(self,name,pathname,file=None):
+        """Replacement for imp.load_compiled."""
+        hashdb = self._find_hashdb(pathname)
+        if hashdb is None:
+            raise IntegrityCheckMissing(pathname)
+        f = open(pathname,"rb")
+        try:
+            data = f.read()
+        finally:
+            f.close()
+        hashdb.verify("m",name,data)
+        if file is not None:
+            return self._orig_load_compiled(name,pathname,file)
+        else:
+            return self._orig_load_compiled(name,pathname)
+
+    def _imp_load_source(self,name,pathname,file=None):
+        """Replacement for imp.load_source."""
+        hashdb = self._find_hashdb(pathname)
+        if hashdb is None:
+            raise IntegrityCheckMissing(pathname)
+        f = open(pathname,"rb")
+        try:
+            data = f.read()
+        finally:
+            f.close()
+        hashdb.verify("m",name,data)
+        if file is not None:
+            return self._orig_load_source(name,pathname,file)
+        else:
+            return self._orig_load_source(name,pathname)
 
 
 class SignedLoader:
@@ -583,7 +663,7 @@ class SignedLoader:
 
     def verify_data(self,path,data):
         """Verify the given extra data against our signature database."""
-        self._verify("d",fullname,data)
+        self._verify("d",path,data)
 
     def _verify(self,typ,name,data):
         """Verify date for the given type specifier and name.

@@ -264,6 +264,19 @@ else:
             p = popen(os.path.join(self.distdir,"script.exe"))
             self.assertEquals(p.wait(),0)
 
+        def test_replacement_load_dynamic_is_called(self):
+            #  py2exe loads .pyd via a stub that calls imp.load_dynamic().
+            #  Corrupt one and make sure it's detected as invalid.
+            signedimp.tools.sign_py2exe_app(self.distdir)
+            dynlib = "Crypto.PublicKey._fastmath.pyd"
+            with open(os.path.join(self.distdir,dynlib),"ab") as f:
+                f.write("malicious code")
+            p = popen(os.path.join(self.distdir,"script.exe"))
+            err = p.stderr.read()
+            self.assertNotEquals(p.wait(),0)
+            self.assertTrue("invalid hash" in err)
+            self.assertTrue("Crypto.PublicKey._fastmath" in err)
+
 try:
     import cx_Freeze
 except ImportError:
