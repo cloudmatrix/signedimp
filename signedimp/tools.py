@@ -341,8 +341,11 @@ def sign_py2app_bundle(appdir,key=None,hash="sha1",check_modules=None):
     """
     if check_modules is None:
         check_modules = ["codecs","encodings","encodings.__builtin__",
-                         "encodings.codecs","encodings.utf_8",
-                         "encodings.aliases","encodings.encodings","readline"]
+                         "encodings.codecs","encodings.utf_8","copy_reg","site",
+                         "abc","os","wxhack","posixpath","_abcoll","os.path",
+                         "genericpath","stat","warnings","types","linecache",
+                         "encodings.aliases","encodings.encodings","readline",
+                         "UserDict","zlib"]
     do_check_modules = (check_modules != False)
     #  Since the public key will be embedded in the executables, it's OK to
     #  generate a throw-away key that's purely for signing this particular app.
@@ -350,7 +353,7 @@ def sign_py2app_bundle(appdir,key=None,hash="sha1",check_modules=None):
         key = RSAKeyWithPSS.generate()
     pubkey = key.get_public_key()
     #  Build the bootstrap code and put it at start of __boot__.py.
-    bscodestr = get_bootstrap_code(indent="    ")
+    bscodestr = get_bootstrap_code(indent="        ")
     bscode =  """
 import sys
 
