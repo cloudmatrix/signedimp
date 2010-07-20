@@ -24,11 +24,19 @@ try:
 except ImportError:
     pass
 
+try:
+    import pkg_resources
+except ImportError:
+    pkg_resources = None
+
+
 def popen(cmd,**kwds):
     kwds.setdefault("stdout",subprocess.PIPE)
     kwds.setdefault("stderr",subprocess.PIPE)
     return subprocess.Popen(cmd,**kwds)
 
+
+KEY = RSAKeyWithPSS.generate(1024)
 
 class TestSignedImp_DefaultImport(unittest.TestCase):
 
@@ -36,6 +44,10 @@ class TestSignedImp_DefaultImport(unittest.TestCase):
         self.tdir = tempfile.mkdtemp()
         shutil.copytree(os.path.dirname(os.path.dirname(__file__)),
                         os.path.join(self.tdir,"signedimp"))
+        if pkg_resources is not None:
+            f_pkgres = pkg_resources.__file__
+            shutil.copy2(pkg_resources.__file__,
+                         os.path.join(self.tdir,os.path.basename(f_pkgres)))
         self.pkgdir = os.path.join(self.tdir,"signedimp_test")
         os.mkdir(self.pkgdir)
         with open(os.path.join(self.pkgdir,"__init__.py"),"w"):
@@ -49,9 +61,11 @@ class TestSignedImp_DefaultImport(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tdir)
 
-    def _runpy(self,*code):
+    def _runpy(self,*code,**kwds):
         cmd = [sys.executable,"-c"]
-        bscode = "import sys; sys.path = [%s]; " % (repr(self.tdir,))
+        bscode = "import sys; sys.path = [%s]; " % (repr(self.tdir),)
+        if "extra_path" in kwds:
+            bscode += " sys.path.extend(%s); " % (repr(kwds["extra_path"]),)
         for stmt in code:
             bscode += stmt + "; "
         cmd.append(bscode)
@@ -83,11 +97,10 @@ class TestSignedImp_DefaultImport(unittest.TestCase):
         self.assertTrue("IntegrityCheckMissing" in p.stderr.read())
 
     def test_signed_dir_succeeds(self):
-        k = RSAKeyWithPSS.generate()
-        self.signit(k)
+        self.signit(KEY)
         p = self._runpy("from signedimp import SignedImportManager",
                         "from signedimp import RSAKeyWithPSS",
-                        "k = %s" % (repr(k.get_public_key(),)),
+                        "k = %s" % (repr(KEY.get_public_key(),)),
                         "sim = SignedImportManager([k])",
                         "sim.install()",
                         "import signedimp_test.test1",
@@ -96,8 +109,7 @@ class TestSignedImp_DefaultImport(unittest.TestCase):
         self.assertEquals(p.stdout.read().strip(),"7")
  
     def test_corrupted_sig_fails(self):
-        k = RSAKeyWithPSS.generate()
-        self.signit(k)
+        self.signit(KEY)
         sigdata = self.readPackagedFile(signedimp.HASHFILE_NAME)
         if sigdata[50] == "A":
             sigdata = sigdata[:50] + "B" + sigdata[51:]
@@ -106,7 +118,7 @@ class TestSignedImp_DefaultImport(unittest.TestCase):
         self.writePackagedFile(signedimp.HASHFILE_NAME,sigdata)
         p = self._runpy("from signedimp import SignedImportManager",
                         "from signedimp import RSAKeyWithPSS",
-                        "k = %s" % (repr(k.get_public_key(),)),
+                        "k = %s" % (repr(KEY.get_public_key(),)),
                         "sim = SignedImportManager([k])",
                         "sim.install()",
                         "import signedimp_test.test1",
@@ -115,8 +127,7 @@ class TestSignedImp_DefaultImport(unittest.TestCase):
         self.assertTrue("bad signature" in p.stderr.read())
 
     def test_corrupted_hash_fails(self):
-        k = RSAKeyWithPSS.generate()
-        self.signit(k)
+        self.signit(KEY)
         sigdata = self.readPackagedFile(signedimp.HASHFILE_NAME)
         new_sigdata = []
         for ln in sigdata.split("\n"):
@@ -130,7 +141,7 @@ class TestSignedImp_DefaultImport(unittest.TestCase):
         self.writePackagedFile(signedimp.HASHFILE_NAME,new_sigdata)
         p = self._runpy("from signedimp import SignedImportManager",
                         "from signedimp import RSAKeyWithPSS",
-                        "k = %s" % (repr(k.get_public_key(),)),
+                        "k = %s" % (repr(KEY.get_public_key(),)),
                         "sim = SignedImportManager([k])",
                         "sim.install()",
                         "import signedimp_test.test1",
@@ -139,12 +150,11 @@ class TestSignedImp_DefaultImport(unittest.TestCase):
         self.assertTrue("bad signature" in p.stderr.read())
 
     def test_modified_file_fails_on_import(self):
-        k = RSAKeyWithPSS.generate()
-        self.signit(k)
+        self.signit(KEY)
         self.writePackagedFile("signedimp_test/test2.py","value = 12")
         p = self._runpy("from signedimp import SignedImportManager",
                         "from signedimp import RSAKeyWithPSS",
-                        "k = %s" % (repr(k.get_public_key(),)),
+                        "k = %s" % (repr(KEY.get_public_key(),)),
                         "sim = SignedImportManager([k])",
                         "sim.install()",
                         "import signedimp_test.test1",
@@ -153,23 +163,43 @@ class TestSignedImp_DefaultImport(unittest.TestCase):
         self.assertEquals(p.stdout.read().strip(),"7")
         p = self._runpy("from signedimp import SignedImportManager",
                         "from signedimp import RSAKeyWithPSS",
-                        "k = %s" % (repr(k.get_public_key(),)),
+                        "k = %s" % (repr(KEY.get_public_key(),)),
                         "sim = SignedImportManager([k])",
                         "sim.install()",
                         "import signedimp_test.test2",)
         self.assertNotEquals(p.wait(),0)
         self.assertTrue("invalid hash" in p.stderr.read())
 
+    if pkg_resources is not None:
+        def test_pkgres(self):
+            self.signit(KEY)
+            p = self._runpy("import pkg_resources",
+                            "from signedimp import SignedImportManager",
+                            "from signedimp import RSAKeyWithPSS",
+                            "k = %s" % (repr(KEY.get_public_key(),)),
+                            "sim = SignedImportManager([k])",
+                            "sim.install()",
+                            "import signedimp.pkgres",
+                            "m = 'signedimp_test'",
+                            "print pkg_resources.resource_listdir(m,'')",
+                             extra_path=sys.path)
+            self.assertEquals(p.wait(),0)
+            exec "items = " + p.stdout.read().strip()
+            self.assertTrue("test1.py" in items)
+            self.assertTrue("test2.py" in items)
+            self.assertFalse("test3.py" in items)
 
 
 class TestSignedImp_ZipImport(TestSignedImp_DefaultImport):
 
-    def _runpy(self,*code):
+    def _runpy(self,*code,**kwds):
         cmd = [sys.executable,"-c"]
         libpath = os.path.join(self.tdir,"library.zip")
         if not os.path.exists(libpath):
             self.zipit()
         bscode = "import sys; sys.path = [%s]; " % (repr(libpath),)
+        if "extra_path" in kwds:
+            bscode += " sys.path.extend(%s); " % (repr(kwds["extra_path"]),)
         for stmt in code:
             bscode += stmt + "; "
         cmd.append(bscode)
