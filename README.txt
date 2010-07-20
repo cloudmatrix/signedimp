@@ -11,7 +11,7 @@ OS (e.g. Microsoft Authenticode, Apple OSX Code Signing) which may be able to
 verify the Python executable itself but not the code that is dynamically loaded
 at runtime.
 
-It will mostly be useful for frozen Python applications, or other sitautions
+It will mostly be useful for frozen Python applications, or other situations
 where code is not expected to change.  It will be almost useless with a
 standard Python interpreter.
 
