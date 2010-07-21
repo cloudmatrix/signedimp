@@ -553,9 +553,11 @@ else:
             zf.close()
     #  Sign any zipfiles in the appdir (inlcuding the exes from above)
     for nm in os.listdir(appdir):
+        if not os.path.isfile(os.path.join(appdir,nm)):
+            continue
         try:
             sign_zipfile(os.path.join(appdir,nm),key,hash=hash)
-        except zipfile.BadZipfile:
+        except (zipfile.BadZipfile,EnvironmentError):
             pass
     #  Sign the main app dir.
     sign_directory(appdir,key,hash=hash)
