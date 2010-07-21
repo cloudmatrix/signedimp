@@ -496,7 +496,7 @@ class SignedImportManager(object):
             f.close()
         try:
             hashdb.verify("m",name,data)
-        except IntegrityCheckError:
+        except IntegrityCheckMissing:
             hashdb.verify("d",pathname[len(basepath)+1:],data)
         if file is not None:
             return self._orig_load_dynamic(name,pathname,file)
@@ -515,7 +515,7 @@ class SignedImportManager(object):
             f.close()
         try:
             hashdb.verify("m",name,data)
-        except IntegrityCheckError:
+        except IntegrityCheckMissing:
             hashdb.verify("d",pathname[len(basepath)+1:],data)
         if file is not None:
             return self._orig_load_compiled(name,pathname,file)
@@ -534,7 +534,7 @@ class SignedImportManager(object):
             f.close()
         try:
             hashdb.verify("m",name,data)
-        except IntegrityCheckError:
+        except IntegrityCheckMissing:
             hashdb.verify("d",pathname[len(basepath)+1:],data)
         if file is not None:
             return self._orig_load_source(name,pathname,file)
