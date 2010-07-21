@@ -535,7 +535,7 @@ else:
     #  Add the bootstrapping code to any executables found in the dir.
     for nm in os.listdir(appdir):
         fpath = os.path.join(appdir,nm)
-        if not _is_executable(fpath):
+        if not os.path.isfile(fpath) or not _is_executable(fpath):
             continue
         zf = zipfile.PyZipFile(fpath,"a")
         try:
