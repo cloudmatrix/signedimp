@@ -257,7 +257,7 @@ if signedimp is None:
         assert "imp" in sys.builtin_module_names
     def _signedimp_init():
         %(bscodestr)s
-        signedimp = imp.new_module()
+        signedimp = imp.new_module("signedimp")
         lvars = locals()
         for nm in __all__:
             setattr(signedimp,nm,lvars[nm])
@@ -371,7 +371,7 @@ if signedimp is None:
         assert "imp" in sys.builtin_module_names
     def _signedimp_init():
         %(bscodestr)s
-        signedimp = imp.new_module()
+        signedimp = imp.new_module("signedimp")
         lvars = locals()
         for nm in __all__:
             setattr(signedimp,nm,lvars[nm])
