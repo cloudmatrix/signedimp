@@ -1,4 +1,9 @@
 
+v0.1.4
+
+    * implement basic integration with pkg_resources - just import the
+      "signedimp.pkgres" module to install the necessary hooks.
+
 v0.1.3
 
     * use fast RSA primitives when PyCrypto is installed.

@@ -21,7 +21,8 @@ obtain the necessary code.
 
 __all__ = ["HASHFILE_NAME","IntegrityCheckError",
            "IntegrityCheckFailed","IntegrityCheckMissing",
-           "SignedImportManager","RSAKeyWithPSS"]
+           "SignedImportManager","SignedLoader","RSAKeyWithPSS",
+           "DefaultImporter"]
 
 
 #  Careful now, we can't just import things willy-nilly.  Make sure you
@@ -229,7 +230,7 @@ class _signedimp_util:
         try:
             import base64
             _signedimp_util.b64decode = staticmethod(base64.b64decode)
-        except ImportError:
+        except (ImportError,IntegrityCheckMissing):
             pass
         #  Try to use our fast-path crypto library
         try:
@@ -239,29 +240,29 @@ class _signedimp_util:
             _signedimp_util.md5 = md5.md5
             _signedimp_util.sha1 = sha1.sha1
             _signedimp_util.RSAKeyWithPSS = rsa.RSAKeyWithPSS
-        except ImportError:
+        except (ImportError,IntegrityCheckMissing):
             # Try to use hashlib
             try:
                 import hashlib
                 _signedimp_util.md5 = hashlib.md5
                 _signedimp_util.sha1 = hashlib.sha1
-            except ImportError:
+            except (ImportError,IntegrityCheckMissing):
                 # Try to use _hashlib
                 try:
                     import _hashlib
                     _signedimp_util.md5 = _hashlib.openssl_md5
                     _signedimp_util.sha1 = _hashlib.openssl_sha1
-                except (ImportError,AttributeError):
+                except (ImportError,AttributeError,IntegrityCheckMissing):
                     #  Try to use _md5 and _sha
                     try:
                         import _md5
                         _signedimp_util.md5 = _md5.new
-                    except ImportError:
+                    except (ImportError,IntegrityCheckMissing):
                         pass
                     try:
                         import _sha
                         _signedimp_util.sha1 = _sha.new
-                    except ImportError:
+                    except (ImportError,IntegrityCheckMissing):
                         pass
         #  If all else fails, we've left them as pure-python implementations
 
@@ -455,10 +456,10 @@ class SignedImportManager(object):
                     break
             else:
                 sys.path_importer_cache[path] = None
-                importer = DefaultImporter(path)
+                importer = _get_default_importer(path)
         else:
             if importer is None:
-                importer = DefaultImporter(path)
+                importer = _get_default_importer(path)
         return importer
 
     def _find_hashdb(self,path):
@@ -574,17 +575,18 @@ class SignedLoader:
         """Pass through simple attributes of the wrapped loader.
 
         This allows access to e.g. the "archive" and "prefix" attributes of
-        a wrapper zipimporter object, while doing (moderately) careful not
+        a wrapper zipimporter object, while being (moderately) careful not
         to allow calling its methods directly.
         """
         try:
             value = self.loader.__dict__[attr]
-        except (KeyError,AttributeError):
+        except AttributeError:
+            value = getattr(self.loader,attr)
+        except KeyError:
             raise AttributeError(attr)
-        else:
-            if not isinstance(value,(int,long,basestring,float)):
-                raise AttributeError(attr)
-            return value
+        if not isinstance(value,(int,long,basestring,float)):
+            raise AttributeError(attr)
+        return value
 
     def load_module(self,fullname,verify=True):
         """Load the specified module, checking its integrity first.
@@ -772,24 +774,16 @@ class BuiltinImporter(object):
 
 
 
-def DefaultImporter(path=None):
-    """Importer emulating the standard import mechanism.
-
-    This is a placeholder implementation for modules that are found via the
-    standard builtin import mechanism.
-
-    It's also not really a class, it's a factory function that uses a cache.
-    The real class is called _DefaultImporter.
-    """
+def _get_default_importer(path=None):
     try:
-        return DefaultImporter.importer_cache[path]
+        return _get_default_importer.importer_cache[path]
     except KeyError:
-        DefaultImporter.importer_cache[path] = _DefaultImporter(path)
-        return DefaultImporter.importer_cache[path]
-DefaultImporter.importer_cache = {}
+        _get_default_importer.importer_cache[path] = DefaultImporter(path)
+        return _get_default_importer.importer_cache[path]
+_get_default_importer.importer_cache = {}
 
 
-class _DefaultImporter:
+class DefaultImporter:
     """Importer emulating the standard import mechanism.
 
     This is a placeholder implementation for modules that are found via the

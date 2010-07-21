@@ -2,5 +2,6 @@
 
   * include the PSS hash/mgf names in the fingerprint hash
     (since we'll probably want to move away from SHA1 in future)
+
   * register_loader_type implementation
 
