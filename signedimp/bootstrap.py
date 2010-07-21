@@ -407,6 +407,15 @@ class SignedImportManager(object):
         given module, and wraps it in a SignedLoader instance so that all
         data is verified immediately prior to being loaded.
         """
+        if path is not None and fullname.startswith("signedimp."):
+            # Careful now, the signedimp module may be been created by
+            # hand and its __path__ may not reflect the real sys.path.
+            if len(fullname.split(".")) == 2:
+                signedimp = sys.modules.get("signedimp",None)
+                if signedimp and signedimp._path_is_broken:
+                    path = []
+                    for p in sys.path:
+                        path.append(os.path.join(p,"signedimp"))
         loader = self._find_loader(fullname,path)
         return SignedLoader(self,loader)
 

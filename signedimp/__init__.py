@@ -217,12 +217,17 @@ You have been warned.
 
 __ver_major__ = 0
 __ver_minor__ = 1
-__ver_patch__ = 3
+__ver_patch__ = 4
 __ver_sub__ = ""
 __ver_tuple__ = (__ver_major__,__ver_minor__,__ver_patch__,__ver_sub__)
 __version__ = "%d.%d.%d%s" % __ver_tuple__
 
 
 from signedimp.bootstrap import *
+
+#  This indicates whether signedimp.__path__ can be trusted for finding
+#  submodules of this package.  It will be broken if signedimp is created
+#  by some bootstrapping code rather than a traditional import.
+_path_is_broken = False
 
 

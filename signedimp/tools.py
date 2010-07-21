@@ -262,10 +262,8 @@ if signedimp is None:
         for nm in __all__:
             setattr(signedimp,nm,lvars[nm])
         signedimp.__package__ == "signedimp"
-        if sys.platform == "win32":
-            signedimp.__path__ = [p+"\\signedimp" for p in sys.path]
-        else:
-            signedimp.__path__ = [p+"/signedimp" for p in sys.path]
+        signedimp.__path__ = []
+        signedimp._path_is_broken = True
         return signedimp
     signedimp = sys.modules["signedimp"] = _signedimp_init()
 
@@ -376,13 +374,10 @@ if signedimp is None:
         for nm in __all__:
             setattr(signedimp,nm,lvars[nm])
         signedimp.__package__ == "signedimp"
-        if sys.platform == "win32":
-            signedimp.__path__ = [p+"\\signedimp" for p in sys.path]
-        else:
-            signedimp.__path__ = [p+"/signedimp" for p in sys.path]
+        signedimp.__path__ = []
+        signedimp._path_is_broken = True
         return signedimp
     signedimp = sys.modules["signedimp"] = _signedimp_init()
-
 
 #  Add the specific key into the signed import machinery.
 k = signedimp.%(pubkey)r

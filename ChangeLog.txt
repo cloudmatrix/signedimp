@@ -3,6 +3,8 @@ v0.1.4
 
     * implement basic integration with pkg_resources - just import the
       "signedimp.pkgres" module to install the necessary hooks.
+    * have custom bootstrap code create an actual "signedimp" module, so
+      it's easy to tell that it has been installed.
 
 v0.1.3
 
