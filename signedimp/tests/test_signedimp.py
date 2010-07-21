@@ -45,9 +45,10 @@ class TestSignedImp_DefaultImport(unittest.TestCase):
         shutil.copytree(os.path.dirname(os.path.dirname(__file__)),
                         os.path.join(self.tdir,"signedimp"))
         if pkg_resources is not None:
-            f_pkgres = pkg_resources.__file__
-            shutil.copy2(pkg_resources.__file__,
-                         os.path.join(self.tdir,os.path.basename(f_pkgres)))
+            pkgres_code = pkg_resources.resource_string("pkg_resources",
+                                                        "pkg_resources.pyc")
+            with open(os.path.join(self.tdir,"pkg_resources.pyc"),"wb") as f:
+                f.write(pkgres_code)
         self.pkgdir = os.path.join(self.tdir,"signedimp_test")
         os.mkdir(self.pkgdir)
         with open(os.path.join(self.pkgdir,"__init__.py"),"w"):
