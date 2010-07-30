@@ -2,6 +2,7 @@
 v0.1.5
 
     * better support for namespace packages and other abusers of __path__.
+    * tools.sign_zipfile:  don't modify files that are not already zipfiles.
     * ability to record "module aliases" for cases where modules can be
       loaded under something other than their canonical names (Django template
       tag libraries, I'm looking in your direction...)

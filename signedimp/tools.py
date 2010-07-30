@@ -136,11 +136,17 @@ def sign_zipfile(file,key,hash="sha1",outfile=signedimp.HASHFILE_NAME):
     """Sign all the modules found in the given zipfile.
 
     This function walks the given zipfile looking for python modules, and
-    signs everything it finds in that file using the given key.
+    signs everything it finds in that file using the given key.  If the named
+    file is not a zipfile, the function returns immediately and leaves the
+    file unchanged.
 
     By default the signed hash file is written into the root of the zipfile;
     redirect output by passing a filename or file object as 'outfile'.
     """
+    try:
+        zipfile.ZipFile(file).close()
+    except zipfile.BadZipfile:
+        return
     infile = zipfile.ZipFile(file,"a")
     other_sigs = []
     #  Simulate "os" module for passing to the hash_files function.
