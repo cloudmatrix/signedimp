@@ -11,6 +11,7 @@ import random
 import subprocess
 import compileall
 import zipfile
+import pkgutil
 
 import signedimp
 import signedimp.tools
@@ -42,29 +43,57 @@ class TestSignedImp_DefaultImport(unittest.TestCase):
 
     def setUp(self):
         self.tdir = tempfile.mkdtemp()
+        #  Ensure we have signedimp in the test environment.
         shutil.copytree(os.path.dirname(os.path.dirname(__file__)),
                         os.path.join(self.tdir,"signedimp"))
+      
+        #  Ensure we have pkgutil and pkg_resources in the test environment.
+        with open(pkgutil.__file__,"rb") as fIn:
+            with open(os.path.join(self.tdir,"pkgutil.pyc"),"wb") as fOut:
+                shutil.copyfileobj(fIn,fOut)
         if pkg_resources is not None:
             pkgres_code = pkg_resources.resource_string("pkg_resources",
                                                         "pkg_resources.pyc")
             with open(os.path.join(self.tdir,"pkg_resources.pyc"),"wb") as f:
                 f.write(pkgres_code)
+        #  Create the "signedimp_test" module.
         self.pkgdir = os.path.join(self.tdir,"signedimp_test")
         os.mkdir(self.pkgdir)
-        with open(os.path.join(self.pkgdir,"__init__.py"),"w"):
-            pass
+        with open(os.path.join(self.pkgdir,"__init__.py"),"w") as f:
+            f.write("from pkgutil import extend_path\n")
+            f.write("__path__ = extend_path(__path__,__name__)\n")
         with open(os.path.join(self.pkgdir,"test1.py"),"w") as f:
             f.write("value = 7\n")
         with open(os.path.join(self.pkgdir,"test2.py"),"w") as f:
             f.write("value = 42\n")
+        #  Create "signedimp_test.test3" in a namespace package.
+        pkgdir2 = os.path.join(self.tdir,"subpath") 
+        os.mkdir(pkgdir2)
+        pkgdir2 = os.path.join(self.tdir,"subpath","signedimp_test") 
+        os.mkdir(pkgdir2)
+        with open(os.path.join(pkgdir2,"__init__.py"),"w") as f:
+            f.write("from pkgutil import extend_path\n")
+            f.write("__path__ = extend_path(__path__,__name__)\n")
+        with open(os.path.join(pkgdir2,"test3.py"),"w") as f:
+            f.write("value = 256\n")
+        #  Create "si_test2" as an alias for signedimp_test
+        pkgdir2 = os.path.join(self.tdir,"si_test2") 
+        os.mkdir(pkgdir2)
+        with open(os.path.join(pkgdir2,"__init__.py"),"w") as f:
+            f.write("import os\n")
+            f.write("d = os.path.dirname(os.path.dirname(__file__))\n")
+            f.write("__path__.append(os.path.join(d,'signedimp_test'))\n")
+        #  Compile everything to bytecode to ensure a steady state.
         compileall.compile_dir(self.tdir,quiet=True)
+        compileall.compile_dir(os.path.join(self.tdir,"subpath"),quiet=True)
 
     def tearDown(self):
         shutil.rmtree(self.tdir)
 
     def _runpy(self,*code,**kwds):
         cmd = [sys.executable,"-c"]
-        bscode = "import sys; sys.path = [%s]; " % (repr(self.tdir),)
+        paths = (repr(self.tdir),repr(os.path.join(self.tdir,"subpath")),)
+        bscode = "import sys; sys.path = [%s,%s]; " % paths
         if "extra_path" in kwds:
             bscode += " sys.path.extend(%s); " % (repr(kwds["extra_path"]),)
         for stmt in code:
@@ -74,6 +103,7 @@ class TestSignedImp_DefaultImport(unittest.TestCase):
 
     def signit(self,k):
         signedimp.tools.sign_directory(self.tdir,k)
+        signedimp.tools.sign_directory(os.path.join(self.tdir,"subpath"),k)
 
     def readPackagedFile(self,path):
         with open(os.path.join(self.tdir,path),"rb") as f:
@@ -171,6 +201,18 @@ class TestSignedImp_DefaultImport(unittest.TestCase):
         self.assertNotEquals(p.wait(),0)
         self.assertTrue("invalid hash" in p.stderr.read())
 
+    def test_namespace_packages(self):
+        self.signit(KEY)
+        p = self._runpy("from signedimp import SignedImportManager",
+                        "from signedimp import RSAKeyWithPSS",
+                        "k = %s" % (repr(KEY.get_public_key(),)),
+                        "sim = SignedImportManager([k])",
+                        "sim.install()",
+                        "import signedimp_test.test3",
+                        "print signedimp_test.test3.value")
+        self.assertEquals(p.wait(),0)
+        self.assertEquals(p.stdout.read().strip(),"256")
+
     if pkg_resources is not None:
         def test_pkgres(self):
             self.signit(KEY)
@@ -231,6 +273,9 @@ class TestSignedImp_ZipImport(TestSignedImp_DefaultImport):
         libpath = os.path.join(self.tdir,"library.zip")
         zf = zipfile.ZipFile(libpath,"a")
         zf.writestr(path,data)
+
+    def test_namespace_packages(self):
+        pass
 
 
 

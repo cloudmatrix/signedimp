@@ -1,4 +1,11 @@
 
+v0.1.5
+
+    * better support for namespace packages and other abusers of __path__.
+    * ability to record "module aliases" for cases where modules can be
+      loaded under something other than their canonical names (Django template
+      tag libraries, I'm looking in your direction...)
+
 v0.1.4
 
     * implement basic integration with pkg_resources - just import the

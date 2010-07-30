@@ -13,8 +13,8 @@ into other code with a minimum of fuss.
 To get any real security out of this, you'll need to incorporate this script
 wholesale into your main application script so that it runs before you try to
 import anything.  Don't just import this script - after all, how would you 
-verify the import of this module?  Use signedimp.tools.get_bootstrap_code() to
-obtain the necessary code.
+verify the import of this module?  Use the functions in signedimp.tools to
+add the necessary bootstrapping code to your application.
 
 """
 
@@ -64,6 +64,18 @@ def _signedimp_make_os_module():
     class os:
         sep = SEP
         class path:
+            if sys.platform == "win32":
+                @staticmethod
+                def isabs(path):
+                    if path.startswith(SEP):
+                        return True
+                    if path[1:3] == ":"+SEP:
+                        return True
+                    return False
+            else:
+                @staticmethod
+                def isabs(path):
+                    return path.startswith(SEP)
             @staticmethod
             def join(*args):
                 """Local re-implementation of os.path.join."""
@@ -71,6 +83,8 @@ def _signedimp_make_os_module():
                 for bit in args:
                     while bit.endswith(SEP) and bit != SEP:
                         bit = bit[:-1]
+                    if os.path.isabs(bit):
+                        del bits[:]
                     bits.append(bit)
                 return SEP.join(bits)
             @staticmethod
@@ -408,7 +422,7 @@ class SignedImportManager(object):
         data is verified immediately prior to being loaded.
         """
         if path is not None and fullname.startswith("signedimp."):
-            # Careful now, the signedimp module may be been created by
+            # Careful now, the signedimp module may have been created by
             # hand and its __path__ may not reflect the real sys.path.
             if len(fullname.split(".")) == 2:
                 signedimp = sys.modules.get("signedimp",None)
@@ -470,9 +484,34 @@ class SignedImportManager(object):
             if importer is None:
                 importer = _get_default_importer(path)
         return importer
+        
+    def load_hashdb(self,loader,path):
+        """Load the hashdb at the given path in the given loader.
+        
+        This method creates and initialises a SignedHashDatabase from the data
+        at the given path in the given loader.  It may use a cached version.
+        """
+        if path is None:
+            hashdata = loader.get_data(HASHFILE_NAME)
+            hashdb = SignedHashDatabase(self.valid_keys)
+            hashdb.parse_hash_data(hashdata)
+        else:
+            try:
+                hashdb = self._hashdb_cache[path]
+            except KeyError:
+                hashdata = loader.get_data(path)
+                hashdb = SignedHashDatabase(self.valid_keys)
+                hashdb.parse_hash_data(hashdata)
+                self._hashdb_cache[path] = hashdb
+        return hashdb
 
     def _find_hashdb(self,path):
-        """Find and return the hashdb covering the given path."""
+        """Find and return the hashdb covering the given path.
+        
+        This method searches backwards through the directory tree containing
+        the given path to find a hash database file.  The first such file found is 
+        returned, using a cached version if possible.
+        """
         path = os.path.dirname(path)
         while True:
             hashfile = os.path.join(path,HASHFILE_NAME)
@@ -494,7 +533,12 @@ class SignedImportManager(object):
             path = new_path
 
     def _imp_load_dynamic(self,name,pathname,file=None):
-        """Replacement for imp.load_dynamic."""
+        """Replacement for imp.load_dynamic.
+        
+        This method acts as a replacement for the standard imp.load_dynamic
+        function, checking signatures before calling back to the original
+        implementation.
+        """
         (basepath,hashdb) = self._find_hashdb(pathname)
         if hashdb is None:
             raise IntegrityCheckMissing(pathname)
@@ -513,7 +557,12 @@ class SignedImportManager(object):
             return self._orig_load_dynamic(name,pathname)
 
     def _imp_load_compiled(self,name,pathname,file=None):
-        """Replacement for imp.load_compiled."""
+        """Replacement for imp.load_compiled.
+        
+        This method acts as a replacement for the standard imp.load_compiled
+        function, checking signatures before calling back to the original
+        implementation.
+        """
         (basepath,hashdb) = self._find_hashdb(pathname)
         if hashdb is None:
             raise IntegrityCheckMissing(pathname)
@@ -532,7 +581,12 @@ class SignedImportManager(object):
             return self._orig_load_compiled(name,pathname)
 
     def _imp_load_source(self,name,pathname,file=None):
-        """Replacement for imp.load_source."""
+        """Replacement for imp.load_source.
+        
+        This method acts as a replacement for the standard imp.load_source
+        function, checking signatures before calling back to the original
+        implementation.
+        """
         (basepath,hashdb) = self._find_hashdb(pathname)
         if hashdb is None:
             raise IntegrityCheckMissing(pathname)
@@ -565,18 +619,7 @@ class SignedLoader:
         self.loader = loader
         try:
             hashfile = self.get_datafilepath(HASHFILE_NAME)
-            if hashfile is None:
-                    hashdata = self.loader.get_data(HASHFILE_NAME)
-                    self.hashdb = SignedHashDatabase(manager.valid_keys)
-                    self.hashdb.parse_hash_data(hashdata)
-            else:
-                try:
-                    self.hashdb = manager._hashdb_cache[hashfile]
-                except KeyError:
-                    hashdata = self.loader.get_data(HASHFILE_NAME)
-                    self.hashdb = SignedHashDatabase(manager.valid_keys)
-                    self.hashdb.parse_hash_data(hashdata)
-                    manager._hashdb_cache[hashfile] = self.hashdb
+            self.hashdb = manager.load_hashdb(self.loader,hashfile)
         except (AttributeError,EnvironmentError):
             self.hashdb = SignedHashDatabase(manager.valid_keys)
 
@@ -588,8 +631,11 @@ class SignedLoader:
         to allow calling its methods directly.
         """
         try:
+            #  Try not to use getattr() as it may execute code.
             value = self.loader.__dict__[attr]
         except AttributeError:
+            #  No __dict__ attribute, so the loader is a C extension.
+            #  Should be safe to directly call getattr().
             value = getattr(self.loader,attr)
         except KeyError:
             raise AttributeError(attr)
@@ -613,12 +659,7 @@ class SignedLoader:
         except KeyError:
             pass
         if verify and self.loader is not BuiltinImporter:
-            data = self._get_module_data(fullname)
-            if self.is_package(fullname):
-                valname = fullname + ".__init__"
-            else:
-                valname = fullname
-            self.verify_module(valname,data)
+            self.verify_module(fullname)
         mod = self.loader.load_module(fullname)
         mod.__loader__ = self
         return mod
@@ -626,14 +667,14 @@ class SignedLoader:
     def get_data(self,path):
         """Get the data from the given path, checking its integrity first."""
         data = self.loader.get_data(path)
-        self.verify_data(path,data)
+        self._verify("d",path,data)
         return data
 
     def is_package(self,fullname):
         """Check whether the given module is a package."""
         #  The py2exe ZipExtensionLoader (at least) seems to be broken here,
-        #  raising an ImportError for bundled DLLs.  We do a double-check then
-        #  just report False.
+        #  raising an ImportError for bundled DLLs.  We double-check whether
+        #  the module exists and just report False if it does.
         try:
             return self.loader.is_package(fullname)
         except ImportError:
@@ -682,13 +723,14 @@ class SignedLoader:
         else:
             return gdfp(path)
 
-    def verify_module(self,fullname,data):
-        """Verify the given module data against our signature database."""
-        self._verify("m",fullname,data)
-
-    def verify_data(self,path,data):
-        """Verify the given extra data against our signature database."""
-        self._verify("d",path,data)
+    def verify_module(self,fullname):
+        """Verify the given module's data against our signature database."""
+        data = self._get_module_data(fullname)
+        if self.is_package(fullname):
+            valname = fullname + ".__init__"
+        else:
+            valname = fullname
+        self._verify("m",valname,data)
 
     def _verify(self,typ,name,data):
         """Verify date for the given type specifier and name.
@@ -724,10 +766,22 @@ class SignedLoader:
         """
         if self.is_package(fullname):
             fullname = fullname + ".__init__"
+        modname = fullname.rsplit(".",1)[-1]
+        #  Try to use the final value of __file__ to determine the files to read.
+        #  This works better for packages that play tricks with __path__.
+        #  Otherwise, make the filenames by replacing "." with "/" in fullname.
+        try:
+            fn = self.get_filename(fullname)
+            dirnm = os.path.dirname(fn)
+        except (ImportError,AttributeError):
+            dirnm = None
         data = []
         for (suffix,_,_) in imp.get_suffixes():
             for sep in ("/","\\"):
-                path = fullname.replace(".",sep) + suffix
+                if dirnm is None:
+                    path = fullname.replace(".",sep) + suffix
+                else:
+                    path = dirnm + sep + modname + suffix
                 try:
                     new_data = self.loader.get_data(path)
                 except AttributeError:
@@ -784,6 +838,7 @@ class BuiltinImporter(object):
 
 
 def _get_default_importer(path=None):
+    """Get a (possibly cached) DefaultImporter instance for the given path."""
     try:
         return _get_default_importer.importer_cache[path]
     except KeyError:
@@ -843,6 +898,8 @@ class DefaultImporter:
             path = None
         else:
             path = [self.path]
+        if modname == "__init__" and "." in fullname:
+            path[0] = os.path.join(path[0],fullname.rsplit(".",2)[-2])
         return imp.find_module(modname,path)
 
     def find_module(self,fullname,path=None):
@@ -960,7 +1017,6 @@ class DefaultImporter:
                 return compile(source,pathname,"exec")
         return None
 
-        
     def get_data(self,path):
         """Get the specified data file.
 
@@ -981,7 +1037,12 @@ class DefaultImporter:
         file,pathname,description = self._get_module_info(fullname)
         if file is not None:
             file.close()
-        return pathname
+        if description[2] == imp.PKG_DIRECTORY:
+            pkgpath = os.path.join(self.path,fullname.rsplit(".",1)[1])
+            importer = _get_default_importer(pkgpath)
+            return importer.get_filename(fullname + ".__init__")
+        else:
+            return pathname
 
     def get_datafilepath(self,path):
         """Get the full path for the given data file."""
