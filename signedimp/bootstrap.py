@@ -656,17 +656,9 @@ class SignedLoader:
         a wrapper zipimporter object, while being (moderately) careful not
         to allow calling its methods directly.
         """
-        try:
-            #  Try not to use getattr() as it may execute code.
-            value = self.loader.__dict__[attr]
-        except AttributeError:
-            #  No __dict__ attribute, so the loader is a C extension.
-            #  Should be safe to directly call getattr().
-            value = getattr(self.loader,attr)
-        except KeyError:
-            raise AttributeError(attr)
+        value = getattr(self.loader,attr)
         if not isinstance(value,(int,long,basestring,float)):
-            raise AttributeError(attr)
+            raise AttributeError("unsafe attribute type: %s" % (attr,))
         return value
 
     def load_module(self,fullname,verify=True):
