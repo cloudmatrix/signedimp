@@ -213,6 +213,36 @@ class TestSignedImp_DefaultImport(unittest.TestCase):
         self.assertEquals(p.wait(),0)
         self.assertEquals(p.stdout.read().strip(),"256")
 
+    def test_module_aliases(self):
+        #  Check that it works unmolested
+        p = self._runpy("import si_test2.test1",
+                        "print si_test2.test1.value")
+        self.assertEquals(p.wait(),0)
+        self.assertEquals(p.stdout.read().strip(),"7")
+        #  Check that it *doesn't* work without any aliases
+        self.signit(KEY)
+        p = self._runpy("from signedimp import SignedImportManager",
+                        "from signedimp import RSAKeyWithPSS",
+                        "k = %s" % (repr(KEY.get_public_key(),)),
+                        "sim = SignedImportManager([k])",
+                        "sim.install()",
+                        "import si_test2.test1",
+                        "print si_test2.test1.value")
+        self.assertNotEquals(p.wait(),0)
+        self.assertTrue("IntegrityCheckMissing" in p.stderr.read())
+        #  Check that it works with the appropriate aliases registered
+        self.signit(KEY)
+        p = self._runpy("from signedimp import SignedImportManager",
+                        "from signedimp import RSAKeyWithPSS",
+                        "k = %s" % (repr(KEY.get_public_key(),)),
+                        "sim = SignedImportManager([k])",
+                        "sim.module_aliases['si_test2'] = 'signedimp_test'",
+                        "sim.install()",
+                        "import si_test2.test1",
+                        "print si_test2.test1.value")
+        self.assertEquals(p.wait(),0)
+        self.assertEquals(p.stdout.read().strip(),"7")
+
     if pkg_resources is not None:
         def test_pkgres(self):
             self.signit(KEY)

@@ -390,6 +390,7 @@ class SignedImportManager(object):
 
     def __init__(self,valid_keys=[]):
         self.valid_keys = [k for k in valid_keys]
+        self.module_aliases = {}
         self.hashdb = SignedHashDatabase(self.valid_keys)
         self._hashdb_cache = {}
 
@@ -484,6 +485,31 @@ class SignedImportManager(object):
             if importer is None:
                 importer = _get_default_importer(path)
         return importer
+        
+    def get_canonical_modname(self,fullname):
+        """Get the canonical name for a module, resolving any aliases.
+        
+        This method recursively resolves aliases recorded in the attribute
+        "module_aliases", until it reaches a name with no aliases.
+        """
+        old_name = None
+        while old_name != fullname:
+            old_name = fullname
+            fullname = self._resolve_module_aliases(fullname)
+        return fullname
+    
+    def _resolve_module_aliases(self,fullname):
+        """Resolve a single module name alias, if applicable."""
+        resolved = []
+        unresolved = fullname
+        while unresolved not in self.module_aliases:
+            try:
+                unresolved,nm = unresolved.rsplit(".",1)
+                resolved.append(nm)
+            except ValueError:
+                return fullname
+        resolved.append(self.module_aliases[unresolved])
+        return ".".join(reversed(resolved))
         
     def load_hashdb(self,loader,path):
         """Load the hashdb at the given path in the given loader.
@@ -730,7 +756,14 @@ class SignedLoader:
             valname = fullname + ".__init__"
         else:
             valname = fullname
-        self._verify("m",valname,data)
+        try:
+            self._verify("m",valname,data)
+        except IntegrityCheckMissing:
+            cname = self.manager.get_canonical_modname(valname)
+            if cname == valname:
+                raise
+            data = self._get_module_data(cname)
+            self._verify("m",cname,data)
 
     def _verify(self,typ,name,data):
         """Verify date for the given type specifier and name.
