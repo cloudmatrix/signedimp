@@ -73,6 +73,8 @@ class TestCryptoBase(unittest.TestCase):
         privkey = self.rsa.RSAKey(k.n,k.e,k.d)
         self.assertEquals(pubkey.size,1024)
         self.assertEquals(privkey.size,1024)
+        self.assertTrue(pubkey.verify("",privkey.sign("")))
+        self.assertTrue(pubkey.verify("\x00",privkey.sign("\x00")))
         for i in xrange(100):
             ln = random.randint(1,100)
             bs = os.urandom(ln)

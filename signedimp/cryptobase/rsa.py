@@ -94,6 +94,8 @@ class RSAKey(object):
     def verify(self,message,signature):
         while message.startswith("\x00"):
             message = message[1:]
+        if not message:
+            message = "\x00"
         return (message == self.encrypt(signature))
 
 
