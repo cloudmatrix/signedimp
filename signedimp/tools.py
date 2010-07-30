@@ -552,7 +552,7 @@ else:
                         for znm in zf2.namelist():
                             for incmod in ("encodings","codecs"):
                                 if znm.startswith(incmod):
-                                    zf.writestr(incmod,zf2.read(incmod))
+                                    zf.writestr(znm,zf2.read(znm))
                     finally:
                         zf2.close()
         finally:
