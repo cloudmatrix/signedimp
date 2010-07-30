@@ -541,7 +541,7 @@ else:
             #  Fortunately cxfreeze usually includes them as frozen modules
             #  directly into the exe; this is just to make sure.
             for nm2 in os.listdir(appdir):
-                if nm2 == nm:
+                if nm2 == nm or not os.path.isfile(os.path.join(appdir,nm2)):
                     continue
                 try:
                     zf2 = zipfile.ZipFile(os.path.join(appdir,nm2))
