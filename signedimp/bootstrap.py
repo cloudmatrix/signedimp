@@ -1103,7 +1103,11 @@ class BuiltinOnlyImporter(BuiltinImporter):
     """
     @classmethod
     def find_module(self,fullname,path=None):
-        return self
+        loader = super(BuiltinOnlyImporter,self).find_module(fullname,path)
+        if loader is None:
+            raise ImportError(fullname + " is not builtin or frozen")
+        return loader
+
 
 sys.meta_path.insert(0,BuiltinOnlyImporter)
 _signedimp_util.recreate()
