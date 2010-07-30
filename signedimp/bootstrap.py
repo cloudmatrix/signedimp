@@ -441,11 +441,19 @@ class SignedImportManager(object):
         302 to find the loader that we need to interrogate for details on the
         given module.
         """
+        #  Special case magic: if path is a string, it's a frozen module.
+        if isinstance(path,basestring):
+            loader = BuiltinImporter.find_module(fullname)
+            if loader is None:
+                raise ImportError(fullname)
+            return loader
+        #  If no path is given, try the builtin modules.
         if path is None:
             loader = BuiltinImporter.find_module(fullname)
             if loader is not None:
                 return loader
             path = sys.path
+        #  Otherwise, we have to go looking along the given path
         found_me = False
         for mphook in sys.meta_path:
             if found_me:
