@@ -141,9 +141,9 @@ signed executable. There are several options:
      script in the executable.
 
 Since the bootstrapping code can't perform any imports, everything (even the
-cryptographic primitives) is implemented in pure Python by default.  It is
+cryptographic primitives!) is implemented in pure Python by default.  It is
 thus rather slow.  If you're able to securely bundle e.g. hashlib or PyCrypto
-in the executable itself, import them before* installing the signed import
+in the executable itself, import them *before* installing the signed import
 manager so that it knows they are safe to use.
 
 Of course, the first thing the import manager does once installed is try to
@@ -160,7 +160,7 @@ and cxfreeze applications, and there are helper functions in "signedimp.tools"
 that will do it for you.
 
 I don't belive it's possible to sign a bbfreeze application without patching
-bbfreeze itsel.  Since bbfreeze always sets sys.path to the library.zip and
+bbfreeze itself.  Since bbfreeze always sets sys.path to the library.zip and
 the application dir, there is no way to bundle the bootstrapping code into
 the executable itself.
 
@@ -216,8 +216,8 @@ You have been warned.
 """
 
 __ver_major__ = 0
-__ver_minor__ = 1
-__ver_patch__ = 5
+__ver_minor__ = 2
+__ver_patch__ = 0
 __ver_sub__ = ""
 __ver_tuple__ = (__ver_major__,__ver_minor__,__ver_patch__,__ver_sub__)
 __version__ = "%d.%d.%d%s" % __ver_tuple__

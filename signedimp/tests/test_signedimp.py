@@ -252,7 +252,7 @@ class TestSignedImp_DefaultImport(unittest.TestCase):
                             "k = %s" % (repr(KEY.get_public_key(),)),
                             "sim = SignedImportManager([k])",
                             "sim.install()",
-                            "import signedimp.pkgres",
+                            "import signedimp.compat.pkgres",
                             "m = 'signedimp_test'",
                             "print pkg_resources.resource_listdir(m,'')",
                              extra_path=sys.path)

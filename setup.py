@@ -52,7 +52,7 @@ KEYWORDS = "code-signing verification import hooks"
 LONG_DESC = info["__doc__"]
 
 PACKAGES = ["signedimp","signedimp.cryptobase","signedimp.crypto",
-            "signedimp.tests"]
+            "signedimp.tests","signedimp.compat"]
 EXT_MODULES = []
 PKG_DATA = {}
 

@@ -1,4 +1,14 @@
 
+v0.2.0
+
+    * output hash data in sorted order, for easier debugging by hand.
+    * moved signedimp.pkres to signedimp.compat.pkgres.
+    * added signedimp.compat.esky, providing code to add signedimp support when
+      freezing an application with esky.
+    * tools.get_bootstrap_code() now returns code fully equivalent to doing
+      "import signedimp", i.e. it initialises the signedimp module and assigns
+      it to the local name "signedimp".
+
 v0.1.5
 
     * better support for namespace packages and other abusers of __path__.

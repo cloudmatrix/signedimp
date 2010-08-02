@@ -50,9 +50,9 @@ if sys.platform == "win32":
 def get_bootstrap_code(indent=""):
     """Get sourcecode you can use for inline bootstrapping of signed imports.
 
-    This function basically returns the source code for signedimp.bootstrap,
-    with some cryptographic primitives forcibly inlined as pure python, and
-    indented to the specified level.
+    This function returns code that, when executed, creates the signedimp
+    module and adds it to the local namespace as "signedimp". For most purposes 
+    executing this code should be equivalent to doing "import signedimp".
 
     You would use it to boostrap signed imports in the startup script of your
     application, e.g. build a script like the following and hand it off to
@@ -60,8 +60,8 @@ def get_bootstrap_code(indent=""):
 
        SCRIPT = '''
        %s
-       key = RSAKeyWithPSS(modulus,pub_exponent)
-       SignedImportManager([key]).install()
+       key = signedimp.RSAKeyWithPSS(modulus,pub_exponent)
+       signedimp.SignedImportManager([key]).install()
        actually_start_my_appliction()
        ''' % (signedimp.tools.get_bootstrap_code(),)
 
@@ -78,7 +78,24 @@ def get_bootstrap_code(indent=""):
                     yield newln
             else:
                 yield indent + ln
-    return "\n".join(_get_source_lines("signedimp.bootstrap",indent))
+    return """
+%(indent)ssignedimp = sys.modules.get("signedimp",None)
+%(indent)sif signedimp is None:
+%(indent)s    assert "imp" in sys.builtin_module_names
+%(indent)s    def _signedimp_init():
+%(indent)s        import imp
+%(indent)s        signedimp = imp.new_module("signedimp")
+%(indent)s        %(bscode)s
+%(indent)s        lvars = locals()
+%(indent)s        for nm in __all__:
+%(indent)s            setattr(signedimp,nm,lvars[nm])
+%(indent)s        signedimp.__package__ == "signedimp"
+%(indent)s        signedimp.__path__ = []
+%(indent)s        signedimp._path_is_broken = True
+%(indent)s        return signedimp
+%(indent)s    signedimp = sys.modules["signedimp"] = _signedimp_init()
+""" % dict(bscode="\n".join(_get_source_lines("signedimp.bootstrap"," "*8)),
+           indent=indent)
 
 
 def sign_directory(path,key,hash="sha1",outfile=signedimp.HASHFILE_NAME):
@@ -240,7 +257,7 @@ def sign_py2exe_app(appdir,key=None,hash="sha1",check_modules=None):
     #  We init the bootstrap objects inside a function so they get their own
     #  namespace; py2exe's own bootstrap code does a "del sys" which would
     #  play havoc with the import machinery.
-    bscodestr = get_bootstrap_code(indent="        ")
+    bscodestr = get_bootstrap_code()
     bscode =  """
 import sys
 
@@ -257,21 +274,7 @@ if %(do_check_modules)r and "signedimp" not in sys.modules:
 
 #  Get a reference to the signedimp module, possibly by creating
 #  it from raw code.
-signedimp = sys.modules.get("signedimp",None)
-if signedimp is None:
-    if %(do_check_modules)r:
-        assert "imp" in sys.builtin_module_names
-    def _signedimp_init():
-        %(bscodestr)s
-        signedimp = imp.new_module("signedimp")
-        lvars = locals()
-        for nm in __all__:
-            setattr(signedimp,nm,lvars[nm])
-        signedimp.__package__ == "signedimp"
-        signedimp.__path__ = []
-        signedimp._path_is_broken = True
-        return signedimp
-    signedimp = sys.modules["signedimp"] = _signedimp_init()
+%(bscodestr)s
 
 #  Add the specific key into the signed import machinery.
 k = signedimp.%(pubkey)r
@@ -352,7 +355,7 @@ def sign_py2app_bundle(appdir,key=None,hash="sha1",check_modules=None):
         key = RSAKeyWithPSS.generate()
     pubkey = key.get_public_key()
     #  Build the bootstrap code and put it at start of __boot__.py.
-    bscodestr = get_bootstrap_code(indent="        ")
+    bscodestr = get_bootstrap_code()
     bscode =  """
 import sys
 
@@ -369,21 +372,7 @@ if %(do_check_modules)r and "signedimp" not in sys.modules:
 
 #  Get a reference to the signedimp module, possibly by creating
 #  it from raw code.
-signedimp = sys.modules.get("signedimp",None)
-if signedimp is None:
-    if %(do_check_modules)r:
-        assert "imp" in sys.builtin_module_names
-    def _signedimp_init():
-        %(bscodestr)s
-        signedimp = imp.new_module("signedimp")
-        lvars = locals()
-        for nm in __all__:
-            setattr(signedimp,nm,lvars[nm])
-        signedimp.__package__ == "signedimp"
-        signedimp.__path__ = []
-        signedimp._path_is_broken = True
-        return signedimp
-    signedimp = sys.modules["signedimp"] = _signedimp_init()
+%(bscodestr)s
 
 #  Add the specific key into the signed import machinery.
 k = signedimp.%(pubkey)r
