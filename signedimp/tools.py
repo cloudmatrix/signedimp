@@ -85,7 +85,7 @@ def get_bootstrap_code(indent=""):
 %(indent)s    def _signedimp_init():
 %(indent)s        import imp
 %(indent)s        signedimp = imp.new_module("signedimp")
-%(indent)s        %(bscode)s
+%(bscode)s
 %(indent)s        lvars = locals()
 %(indent)s        for nm in __all__:
 %(indent)s            setattr(signedimp,nm,lvars[nm])
@@ -94,8 +94,7 @@ def get_bootstrap_code(indent=""):
 %(indent)s        signedimp._path_is_broken = True
 %(indent)s        return signedimp
 %(indent)s    signedimp = sys.modules["signedimp"] = _signedimp_init()
-""" % dict(bscode="\n".join(_get_source_lines("signedimp.bootstrap"," "*8)),
-           indent=indent)
+""" % dict(indent=indent,bscode="\n".join(_get_source_lines("signedimp.bootstrap",indent+" "*8)))
 
 
 def sign_directory(path,key,hash="sha1",outfile=signedimp.HASHFILE_NAME):

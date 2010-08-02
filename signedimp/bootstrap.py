@@ -912,6 +912,8 @@ class DefaultImporter:
                 else:
                     # We're nowhere on sys.path
                     self.base_path = path
+        else:
+            self.base_path = base_path
 
     def _exists(self,*args):
         """Shortcut for checking if a file exists relative to my path."""

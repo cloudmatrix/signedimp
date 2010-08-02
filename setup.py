@@ -1,6 +1,7 @@
 #  Copyright (c) 2009-2010, Cloud Matrix Pty. Ltd.
 #  All rights reserved; available under the terms of the BSD License.
 
+import os
 import sys
 setup_kwds = {}
 if sys.version_info > (3,):
