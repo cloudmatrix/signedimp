@@ -659,9 +659,11 @@ def hash_files(path,files=None,hash="sha1",read=_read_file,os=os):
                             moddata.append(read(modpath))
                     moddata = "\x00".join(moddata)
                     modhashes[modname] = hash(moddata).hexdigest()
-    for nm,hash in modhashes.iteritems():
+    #  Concatenate the various hashes.  Put then in sorted order so
+    #  it's easy to locate a particular hash by hand.
+    for nm,hash in sorted(modhashes.items()):
         output.append("m %s %s" % (hash,nm))
-    for nm,hash in datahashes.iteritems():
+    for nm,hash in sorted(datahashes.iteritems()):
         output.append("d %s %s" % (hash,nm))
     return "\n".join(output)
 
