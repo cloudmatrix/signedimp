@@ -34,6 +34,13 @@ except Exception:
     pass
 
 
+#  Screw the MANIFEST file, it just caches out of date data and messes
+#  up my builds.
+mfst = os.path.join(os.path.dirname(__file__),"MANIFEST")
+if os.path.exists(mfst):
+    os.unlink(mfst)
+
+
 NAME = "signedimp"
 VERSION = info["__version__"]
 DESCRIPTION = "signed imports for verified loading of python modules"
