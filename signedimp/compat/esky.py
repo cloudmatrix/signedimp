@@ -21,11 +21,32 @@ def _make_signedimp_chainload(orig_chainload):
     def _chainload(target_dir):
         key = signedimp.%(pubkey)r
         manager = signedimp.SignedImportManager([key])
-        target_exe = pathjoin(target_dir,basename(sys.executable))
-        target_imp = signedimp.DefaultImporter(target_dir,target_dir)
-        target_imp = signedimp.SignedLoader(manager,target_imp)
-        #  Calling get_data forces verification of the specfied data file
-        target_imp.get_data(basename(sys.executable))
+        #  On OSX, the signature file may be within a bundled ".app" directory
+        #  or in the top level of the target dir.
+        if sys.platform == "darwin":
+            if __esky_name__ is not None:
+                signed_dir = pathjoin(target_dir,__esky_name__+".app")
+                if not exists(pathjoin(signed_dir,signedimp.HASHFILE_NAME)):
+                    signed_dir = target_dir
+            else:
+                for nm in listdir(target_dir):
+                    if nm.endswith(".app"):
+                        signed_dir = pathjoin(target_dir,nm)
+                        if exists(pathjoin(signed_dir,signedimp.HASHFILE_NAME)):
+                            break
+                else:
+                    signed_dir = target_dir
+        else:
+            signed_dir = target_dir
+        loader = signedimp.DefaultImporter(signed_dir,signed_dir)
+        loader = signedimp.SignedLoader(manager,loader)
+        for target_exe in get_exe_locations(target_dir):
+            #  Calling get_data forces verification of the specfied data file.
+            try:
+                loader.get_data(target_exe[len(signed_dir)+1:])
+                break
+            except EnvironmentError:
+                pass
         orig_chainload(target_dir)
     return _chainload
 _chainload = _make_signedimp_chainload(_chainload)
