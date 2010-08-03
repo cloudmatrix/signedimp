@@ -38,9 +38,9 @@ Enabling Signed Imports
 To enable signed imports, you need to create a SignedImportManager with the
 appropriate cryptographic keys and install it into the import machinery::
 
-    from signedimp import SignedImportManager, RSAKeyWithPSS
+    from signedimp import SignedImportManager, RSAKey
 
-    key = RSAKeyWithPSS(modulus,pub_exponent)
+    key = RSAKey(modulus,pub_exponent)
     mgr = SignedImportManager([key])
     mgr.install()
 
@@ -62,8 +62,8 @@ Currently signedimp uses RSA keys for its digital signatures, along with the
 "Probabilistic Signature Scheme" padding mechanism.  To generate a new key
 you will need PyCrypto installed, and to do the following::
 
-    from signedimp.crypto.rsa import RSAKeyWithPSS
-    key = RSAKeyWithPSS.generate()
+    from signedimp.crypto.rsa import RSAKey
+    key = RSAKey.generate()
     pubkey = key.get_public_key()
 
 Store this key somewhere safe, you'll need it to sign files.  The simplest way
@@ -75,7 +75,7 @@ is using the "save_to_file" method::
 To retreive the key in e.g. your build scripts, do something like this::
 
     with open("mykeyfile","rb") as f:
-        key = RSAKeyWithPSS.load_from_file(f,getpass())
+        key = RSAKey.load_from_file(f,getpass())
 
 You'll also need to embed the public key somewhere in your final executable
 so it's available for verifying imports.  The functions in signedimp.tools will
@@ -116,7 +116,7 @@ ASCII blobs.
 To create a manifest file you will need a key object that includes the private
 key data.  You can then use the functions in the "tools" submodule::
 
-    key = RSAKeyWithPSS(modulus,pub_exponent,priv_exponent)
+    key = RSAKey(modulus,pub_exponent,priv_exponent)
 
     signedimp.tools.sign_directory("some/dir/on/sys/path",key)
     signedimp.tools.sign_zipfile("some/zipfile/on/sys/path.zip",key)

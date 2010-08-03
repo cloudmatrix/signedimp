@@ -17,7 +17,7 @@ class TestCrypto(TestCryptoBase):
 
 
     def test_load_and_save_keys(self):
-        cls = self.rsa.RSAKeyWithPSS
+        cls = self.rsa.RSAKey
         k = cls.generate()
         tf = tempfile.TemporaryFile()
         try:

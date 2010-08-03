@@ -21,7 +21,7 @@ add the necessary bootstrapping code to your application.
 
 __all__ = ["HASHFILE_NAME","IntegrityCheckError",
            "IntegrityCheckFailed","IntegrityCheckMissing",
-           "SignedImportManager","SignedLoader","RSAKeyWithPSS",
+           "SignedImportManager","SignedLoader","RSAKey",
            "DefaultImporter"]
 
 
@@ -161,9 +161,9 @@ class _signedimp_util:
             _signedimp_util._sha1type = sha1
         return _signedimp_util._sha1type(data)
 
-    _RSAKeyWithPSS = None
+    _RSAKey = None
     @staticmethod
-    def RSAKeyWithPSS(modulus,pubexp,privexp=None):
+    def RSAKey(modulus,pubexp,privexp=None):
         """Pure-python implementation of RSA-PSS verification.
 
         This is horribly slow and probably broken, but it's the best we can do
@@ -171,10 +171,10 @@ class _signedimp_util:
         """
         #  The signedimp.tools.get_bootstrap_code() function will inline the
         #  raw code from signedimp.cryptobase.rsa
-        if not _signedimp_util._RSAKeyWithPSS:
-            from signedimp.cryptobase.rsa import RSAKeyWithPSS
-            _signedimp_util._RSAKeyWithPSS = RSAKeyWithPSS
-        return _signedimp_util._RSAKeyWithPSS(modulus,pubexp,privexp)
+        if not _signedimp_util._RSAKey:
+            from signedimp.cryptobase.rsa import RSAKey
+            _signedimp_util._RSAKey = RSAKey
+        return _signedimp_util._RSAKey(modulus,pubexp,privexp)
 
     @staticmethod
     def _b64unquad(quad):
@@ -253,7 +253,7 @@ class _signedimp_util:
             from signedimp.crypto import rsa
             _signedimp_util.md5 = md5.md5
             _signedimp_util.sha1 = sha1.sha1
-            _signedimp_util.RSAKeyWithPSS = rsa.RSAKeyWithPSS
+            _signedimp_util.RSAKey = rsa.RSAKey
         except (ImportError,IntegrityCheckMissing):
             # Try to use hashlib
             try:
@@ -344,7 +344,7 @@ class SignedHashDatabase(object):
             try:
                 fingerprint,signature = ln.split()
                 signature = _signedimp_util.b64decode(signature)
-            except ValueError, e:
+            except (ValueError,TypeError):
                 return
             for k in self.valid_keys:
                 if k.fingerprint() == fingerprint:
@@ -1087,9 +1087,9 @@ class DefaultImporter:
 
 
 
-def RSAKeyWithPSS(*args,**kwds):
-    """Wrapper to expose RSAKeyWithPSS at the top-level of the module."""
-    return _signedimp_util.RSAKeyWithPSS(*args,**kwds)
+def RSAKey(*args,**kwds):
+    """Wrapper to expose RSAKey at the top-level of the module."""
+    return _signedimp_util.RSAKey(*args,**kwds)
 
 
 #  Try to speed up initial imports by loading builtin or frozen utility mods.

@@ -19,7 +19,7 @@ from Crypto.Util.number import size as num_bits
 from Crypto.PublicKey import RSA as _RSA
 from Crypto.Cipher import AES
 
-from signedimp.cryptobase.rsa import RSAKey, RSAKeyWithPSS, math
+from signedimp.cryptobase.rsa import RSAKey, math
 from signedimp.crypto.pss import PSS, strxor
 
 
@@ -58,6 +58,8 @@ class RSAKey(RSAKey):
     """Public key using RSS with no padding."""
 
     _math = math
+    _PSS = PSS
+
 
     def __init__(self,modulus,pub_exponent,priv_exponent=None,**kwds):
         super(RSAKey,self).__init__(modulus,pub_exponent,priv_exponent,**kwds)
@@ -99,7 +101,11 @@ class RSAKey(RSAKey):
             return False
 
     def save_to_file(self,f,password):
-        """Save to given filelike object, encrypted with given password."""
+        """Save to given filelike object, encrypted with given password.
+
+        This simple stores a pickle of the key into the given file, encrypted
+        with a key derived from the password.
+        """
         #  To save difficulty in unpadding, we add pickle.STOP until we get
         #  to the block size.  This is ignored by the unpickler.
         assert len(pickle.STOP) == 1
@@ -147,12 +153,4 @@ class RSAKey(RSAKey):
         #  Finally we can unpickle the key
         return pickle.loads(data)
  
-        
-
-class RSAKeyWithPSS(RSAKey,RSAKeyWithPSS):
-    """Public key using RSS with PSS signature padding scheme."""
-
-    _math = math
-    _PSS = PSS
-
 

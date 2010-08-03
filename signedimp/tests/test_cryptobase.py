@@ -67,10 +67,12 @@ class TestCryptoBase(unittest.TestCase):
             newdata = "".join(newbytes)
         return newdata
                 
-    def test_rsa_verify(self):
+    def test_rsa_raw_verify(self):
         k = RSA.generate(1024,os.urandom)
         pubkey = self.rsa.RSAKey(k.n,k.e)
         privkey = self.rsa.RSAKey(k.n,k.e,k.d)
+        pubkey.default_padding_scheme = "raw"
+        privkey.default_padding_scheme = "raw"
         self.assertEquals(pubkey.size,1024)
         self.assertEquals(privkey.size,1024)
         self.assertTrue(pubkey.verify("",privkey.sign("")))
@@ -89,10 +91,12 @@ class TestCryptoBase(unittest.TestCase):
             self.assertFalse(pubkey.verify(bs,self._corrupt(sig,5)))
             self.assertFalse(pubkey.verify(bs,self._corrupt(sig,1)))
                 
-    def test_rsawithpss_verify(self):
+    def test_rsa_pss_verify(self):
         k = RSA.generate(1024,os.urandom)
-        pubkey = self.rsa.RSAKeyWithPSS(k.n,k.e)
-        privkey = self.rsa.RSAKeyWithPSS(k.n,k.e,k.d,randbytes=os.urandom)
+        pubkey = self.rsa.RSAKey(k.n,k.e)
+        privkey = self.rsa.RSAKey(k.n,k.e,k.d,randbytes=os.urandom)
+        pubkey.default_padding_scheme = "pss-sha1"
+        privkey.default_padding_scheme = "pss-sha1"
         self.assertEquals(pubkey.size,1024)
         self.assertEquals(privkey.size,1024)
         self.assertTrue(pubkey.verify("",privkey.sign("")))

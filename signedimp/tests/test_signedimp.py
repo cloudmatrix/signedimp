@@ -15,7 +15,7 @@ import pkgutil
 
 import signedimp
 import signedimp.tools
-from signedimp.crypto.rsa import RSAKeyWithPSS
+from signedimp.crypto.rsa import RSAKey
 
 #  setuptools likes to be imported before anything else that
 #  might monkey-patch distutils.  We don't actually use it,
@@ -37,7 +37,7 @@ def popen(cmd,**kwds):
     return subprocess.Popen(cmd,**kwds)
 
 
-KEY = RSAKeyWithPSS.generate(1024)
+KEY = RSAKey.generate(1024)
 
 class TestSignedImp_DefaultImport(unittest.TestCase):
 
@@ -130,8 +130,21 @@ class TestSignedImp_DefaultImport(unittest.TestCase):
     def test_signed_dir_succeeds(self):
         self.signit(KEY)
         p = self._runpy("from signedimp import SignedImportManager",
-                        "from signedimp import RSAKeyWithPSS",
+                        "from signedimp import RSAKey",
                         "k = %s" % (repr(KEY.get_public_key(),)),
+                        "sim = SignedImportManager([k])",
+                        "sim.install()",
+                        "import signedimp_test.test1",
+                        "print signedimp_test.test1.value")
+        self.assertEquals(p.wait(),0)
+        self.assertEquals(p.stdout.read().strip(),"7")
+
+    def test_signed_dir_succeeds_with_alternate_padding_scheme(self):
+        self.signit(KEY)
+        p = self._runpy("from signedimp import SignedImportManager",
+                        "from signedimp import RSAKey",
+                        "k = %s" % (repr(KEY.get_public_key(),)),
+                        "k.default_padding_scheme = 'raw'",
                         "sim = SignedImportManager([k])",
                         "sim.install()",
                         "import signedimp_test.test1",
@@ -148,7 +161,7 @@ class TestSignedImp_DefaultImport(unittest.TestCase):
             sigdata = sigdata[:50] + "A" + sigdata[51:]
         self.writePackagedFile(signedimp.HASHFILE_NAME,sigdata)
         p = self._runpy("from signedimp import SignedImportManager",
-                        "from signedimp import RSAKeyWithPSS",
+                        "from signedimp import RSAKey",
                         "k = %s" % (repr(KEY.get_public_key(),)),
                         "sim = SignedImportManager([k])",
                         "sim.install()",
@@ -171,7 +184,7 @@ class TestSignedImp_DefaultImport(unittest.TestCase):
         new_sigdata = "\n".join(new_sigdata)
         self.writePackagedFile(signedimp.HASHFILE_NAME,new_sigdata)
         p = self._runpy("from signedimp import SignedImportManager",
-                        "from signedimp import RSAKeyWithPSS",
+                        "from signedimp import RSAKey",
                         "k = %s" % (repr(KEY.get_public_key(),)),
                         "sim = SignedImportManager([k])",
                         "sim.install()",
@@ -184,7 +197,7 @@ class TestSignedImp_DefaultImport(unittest.TestCase):
         self.signit(KEY)
         self.writePackagedFile("signedimp_test/test2.py","value = 12")
         p = self._runpy("from signedimp import SignedImportManager",
-                        "from signedimp import RSAKeyWithPSS",
+                        "from signedimp import RSAKey",
                         "k = %s" % (repr(KEY.get_public_key(),)),
                         "sim = SignedImportManager([k])",
                         "sim.install()",
@@ -193,7 +206,7 @@ class TestSignedImp_DefaultImport(unittest.TestCase):
         self.assertEquals(p.wait(),0)
         self.assertEquals(p.stdout.read().strip(),"7")
         p = self._runpy("from signedimp import SignedImportManager",
-                        "from signedimp import RSAKeyWithPSS",
+                        "from signedimp import RSAKey",
                         "k = %s" % (repr(KEY.get_public_key(),)),
                         "sim = SignedImportManager([k])",
                         "sim.install()",
@@ -204,7 +217,7 @@ class TestSignedImp_DefaultImport(unittest.TestCase):
     def test_namespace_packages(self):
         self.signit(KEY)
         p = self._runpy("from signedimp import SignedImportManager",
-                        "from signedimp import RSAKeyWithPSS",
+                        "from signedimp import RSAKey",
                         "k = %s" % (repr(KEY.get_public_key(),)),
                         "sim = SignedImportManager([k])",
                         "sim.install()",
@@ -222,7 +235,7 @@ class TestSignedImp_DefaultImport(unittest.TestCase):
         #  Check that it *doesn't* work without any aliases
         self.signit(KEY)
         p = self._runpy("from signedimp import SignedImportManager",
-                        "from signedimp import RSAKeyWithPSS",
+                        "from signedimp import RSAKey",
                         "k = %s" % (repr(KEY.get_public_key(),)),
                         "sim = SignedImportManager([k])",
                         "sim.install()",
@@ -233,7 +246,7 @@ class TestSignedImp_DefaultImport(unittest.TestCase):
         #  Check that it works with the appropriate aliases registered
         self.signit(KEY)
         p = self._runpy("from signedimp import SignedImportManager",
-                        "from signedimp import RSAKeyWithPSS",
+                        "from signedimp import RSAKey",
                         "k = %s" % (repr(KEY.get_public_key(),)),
                         "sim = SignedImportManager([k])",
                         "sim.module_aliases['si_test2'] = 'signedimp_test'",
@@ -248,7 +261,7 @@ class TestSignedImp_DefaultImport(unittest.TestCase):
             self.signit(KEY)
             p = self._runpy("import pkg_resources",
                             "from signedimp import SignedImportManager",
-                            "from signedimp import RSAKeyWithPSS",
+                            "from signedimp import RSAKey",
                             "k = %s" % (repr(KEY.get_public_key(),)),
                             "sim = SignedImportManager([k])",
                             "sim.install()",

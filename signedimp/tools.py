@@ -41,7 +41,7 @@ import subprocess
 import signedimp
 from signedimp.crypto.sha1 import sha1
 from signedimp.crypto.md5 import md5
-from signedimp.crypto.rsa import RSAKeyWithPSS
+from signedimp.crypto.rsa import RSAKey
 
 if sys.platform == "win32":
     from signedimp import winres
@@ -60,7 +60,7 @@ def get_bootstrap_code(indent=""):
 
        SCRIPT = '''
        %s
-       key = signedimp.RSAKeyWithPSS(modulus,pub_exponent)
+       key = signedimp.RSAKey(modulus,pub_exponent)
        signedimp.SignedImportManager([key]).install()
        actually_start_my_appliction()
        ''' % (signedimp.tools.get_bootstrap_code(),)
@@ -250,7 +250,7 @@ def sign_py2exe_app(appdir,key=None,hash="sha1",check_modules=None):
     #  Since the public key will be embedded in the executables, it's OK to
     #  generate a throw-away key that's purely for signing this particular app.
     if key is None:
-        key = RSAKeyWithPSS.generate()
+        key = RSAKey.generate()
     pubkey = key.get_public_key()
     #  Build the bootstrapping code needed for each executable.
     #  We init the bootstrap objects inside a function so they get their own
@@ -351,7 +351,7 @@ def sign_py2app_bundle(appdir,key=None,hash="sha1",check_modules=None):
     #  Since the public key will be embedded in the executables, it's OK to
     #  generate a throw-away key that's purely for signing this particular app.
     if key is None:
-        key = RSAKeyWithPSS.generate()
+        key = RSAKey.generate()
     pubkey = key.get_public_key()
     #  Build the bootstrap code and put it at start of __boot__.py.
     bscodestr = get_bootstrap_code()
@@ -447,7 +447,7 @@ def sign_cxfreeze_app(appdir,key=None,hash="sha1",check_modules=None):
     #  Since the public key will be embedded in the executables, it's OK to
     #  generate a throw-away key that's purely for signing this particular app.
     if key is None:
-        key = RSAKeyWithPSS.generate()
+        key = RSAKey.generate()
     pubkey = key.get_public_key()
     #  Build the bootstrap code to be inserted into each executable.  Since
     #  it replaces the cx_Freeze__init__ script it needs to exec that once
