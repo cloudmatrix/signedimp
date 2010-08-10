@@ -761,6 +761,8 @@ class SignedLoader:
         """Verify the given module's data against our signature database."""
         data = self._get_module_data(fullname)
         if self.is_package(fullname):
+            while fullname.endswith("."):
+                fullname = fullname[:-1]
             valname = fullname + ".__init__"
         else:
             valname = fullname
