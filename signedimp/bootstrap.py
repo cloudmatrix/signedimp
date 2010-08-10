@@ -314,6 +314,10 @@ class SignedHashDatabase(object):
             return _signedimp_util.md5(data).hexdigest() == hash
         raise ValueError("unknown hash type: %s" % (type,))
 
+    def _strip(self,s):
+        """Compatability wrapper for compiling string.strip() under pypy."""
+        return s.strip("\n").strip("\r").strip(" ")
+
     def parse_hash_data(self,hashdata):
         """Load hash data from the given string.
 
@@ -338,17 +342,18 @@ class SignedHashDatabase(object):
         #  Find all valid keys that have provided a signature.
         for ln in lines:
             offset += len(ln)+1
-            ln = ln.strip()
+            ln = self._strip(ln)
             if not ln:
                 break
             try:
-                fingerprint,signature = ln.split()
+                fingerprint,signature = ln.split(" ")
                 signature = _signedimp_util.b64decode(signature)
             except (ValueError,TypeError):
                 return
-            for k in self.valid_keys:
-                if k.fingerprint() == fingerprint:
-                    signatures.append((k,signature))
+            else:
+                for k in self.valid_keys:
+                    if k.fingerprint() == fingerprint:
+                        signatures.append((k,signature))
         #  If there weren't any usable signatures, we can't use this data.
         if not signatures:
             return
@@ -356,17 +361,20 @@ class SignedHashDatabase(object):
         signeddata = hashdata[offset:]
         for (k,sig) in signatures:
             if not k.verify(signeddata,sig):
-                err = "bad signature from " + fingerprint
+                err = "bad signature from " + k.fingerprint()
                 raise IntegrityCheckFailed(err)
         #  Next line is the hash type identifier
         try:
-            htyp = lines.next().strip()
+            htyp = self._strip(lines.next())
         except StopIteration:
             return
         #  Now we can load each hash line into the database
         for ln in lines:
             try:
-                typ,hval,name = ln.strip().split(None,2)
+                comps = self._strip(ln).split(" ")
+                typ = comps[0]
+                hval = comps[1]
+                name = " ".join(comps[2:])
             except ValueError:
                 continue
             try:
