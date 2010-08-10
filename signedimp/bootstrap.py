@@ -878,6 +878,14 @@ class BuiltinImporter(object):
             return True
         return False
 
+    @classmethod
+    def get_code(self,fullname):
+        return None
+
+    @classmethod
+    def get_source(self,fullname):
+        return None
+
 
 
 def _get_default_importer(path=None):
