@@ -1,5 +1,3 @@
 
-
-  * include the PSS hash/mgf names in the fingerprint hash
-    (since we'll probably want to move away from SHA1 in future)
+...nothing at the moment...
 

@@ -175,7 +175,7 @@ class TestSignedImp_DefaultImport(unittest.TestCase):
         sigdata = self.readPackagedFile(signedimp.HASHFILE_NAME)
         new_sigdata = []
         for ln in sigdata.split("\n"):
-            if "signedimp_test.test2" not in ln:
+            if "signedimp_test/test2" not in ln:
                 new_sigdata.append(ln)
             elif ln[10] == "c":
                 new_sigdata.append(ln[:10]+"b"+ln[11:])

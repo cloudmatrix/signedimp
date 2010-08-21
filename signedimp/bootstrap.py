@@ -50,7 +50,7 @@ import marshal
 
 
 #  Get a minimal simulation of the "os" module.
-#  It must be builtin or this whole exercise is pointless.
+#  It must use only builtins or this whole exercise is pointless.
 def _signedimp_make_os_module():
     if "posix" in sys.builtin_module_names:
         from posix import stat
@@ -98,6 +98,7 @@ def _signedimp_make_os_module():
             @staticmethod
             def dirname(p):
                 """Local re-implementation of os.path.dirname."""
+                p = p.replace("/",SEP)
                 return SEP.join(p.split(SEP)[:-1])
     return os
 os = _signedimp_make_os_module()
@@ -193,7 +194,7 @@ class _signedimp_util:
             elif c == "/":
                 n += 63
             else:
-                raise ValueError
+                raise ValueError("invalud base64-encoded data")
         bytes = []
         while n > 0:
             bytes.append(chr(n & 0x000000FF))
@@ -285,34 +286,50 @@ class _signedimp_util:
 class SignedHashDatabase(object):
     """An in-memory database of verified hash data.
 
-    This class is used to verify generic data blobs against a signed database
+    This class is used to verify file contents against a signed database
     of their expected hash values.  It encapsulates the file-parsing and
     verification logic shared by SignedImportManager and SignedLoader.
     """
 
-    def __init__(self,valid_keys=[],hashdata=None):
+    def __init__(self,valid_keys=[],hashdata=None,root_path=None):
         self.valid_keys = valid_keys
+        self.root_path = None
+        if root_path is not None:
+            self.root_path = self._normpath(root_path)
         self.hashes = {}
         if hashdata is not None:
             self.parse_hash_data(hashdata)
 
-    def verify(self,typ,name,data):
-        """Verify data of the given type against our hash database."""
+    def _normpath(self,path):
+        if sys.platform == "win32" and os.path.isabs(path):
+            if not path.startswith(os.sep):
+                path = path[2:]
+        path = path.replace(os.sep,"/")
+        if self.root_path is not None:
+            if path.startswith(self.root_path):
+                path = path[len(self.root_path):]
+                while path.startswith("/"):
+                    path = path[1:]
+        return path
+
+    def verify(self,path,data):
+        """Verify data for the given path against our hash database."""
+        path = self._normpath(path)
         try:
-            hashes = self.hashes[(typ,name)]
+            hashes = self.hashes[path]
         except KeyError:
-            raise IntegrityCheckMissing("no valid hash for "+name)
+            raise IntegrityCheckMissing("no valid hash for "+path)
         for (htyp,hval) in hashes:
             if not self._check_hash(htyp,hval,data):
-                raise IntegrityCheckFailed("invalid hash for "+name)
+                raise IntegrityCheckFailed("invalid hash for "+path)
 
-    def _check_hash(self,type,hash,data):
+    def _check_hash(self,typ,hash,data):
         """Check whether the hash of the given data matches the one given."""
-        if type == "sha1":
+        if typ == "sha1":
             return _signedimp_util.sha1(data).hexdigest() == hash
-        if type == "md5":
+        if typ == "md5":
             return _signedimp_util.md5(data).hexdigest() == hash
-        raise ValueError("unknown hash type: %s" % (type,))
+        raise ValueError("unknown hash type: %s" % (typ,))
 
     def _strip(self,s):
         """Compatability wrapper for compiling string.strip() under pypy."""
@@ -330,9 +347,9 @@ class SignedHashDatabase(object):
           key2fingerprint base64-signature2
 
           md5
-          m 76f3f13442c26fd4f1c709c7b03c6b76 os
-          m f56dbc5ee6774e857a7ef07accdbd19b hashlib
-          d 43b74fc5d2acb6b4e417f4feff06dd81 some/data/file.txt
+          76f3f13442c26fd4f1c709c7b03c6b76 os.pyc
+          f56dbc5ee6774e857a7ef07accdbd19b hashlib.pyc
+          43b74fc5d2acb6b4e417f4feff06dd81 some/data/file.txt
           ----
 
         """
@@ -372,15 +389,14 @@ class SignedHashDatabase(object):
         for ln in lines:
             try:
                 comps = self._strip(ln).split(" ")
-                typ = comps[0]
-                hval = comps[1]
-                name = " ".join(comps[2:])
+                hval = comps[0]
+                path = " ".join(comps[1:])
             except ValueError:
                 continue
             try:
-                hashes = self.hashes[(typ,name)]
+                hashes = self.hashes[path]
             except KeyError:
-                self.hashes[(typ,name)] = hashes = []
+                self.hashes[path] = hashes = []
             hashes.append((htyp,hval))
 
 
@@ -407,7 +423,12 @@ class SignedImportManager(object):
         self.reinstall()
 
     def install(self):
-        """Install this manager into the process import machinery."""
+        """Install this manager into the process-wide import machinery.
+
+        This method places the import manager as first entry on sys.meta_path,
+        and replaces some methods from the "imp" module with compatability
+        wrappers that call into the manager.
+        """
         if self not in sys.meta_path:
             sys.meta_path.insert(0,self)
             self._orig_load_dynamic = imp.load_dynamic
@@ -461,7 +482,9 @@ class SignedImportManager(object):
             if loader is not None:
                 return loader
             path = sys.path
-        #  Otherwise, we have to go looking along the given path
+        #  Try the items on sys.meta_path.  Only those appearing after this
+        #  object are tried, as anything before it must already have been
+        #  invoked and failed to load the module.
         found_me = False
         for mphook in sys.meta_path:
             if found_me:
@@ -470,6 +493,7 @@ class SignedImportManager(object):
                     return loader
             elif mphook is self:
                 found_me = True
+        # Try the items on the given path (or sys.path if not specified)
         for pathitem in path:
             importer = self._get_importer(pathitem)
             loader = importer.find_module(fullname)
@@ -542,7 +566,8 @@ class SignedImportManager(object):
                 hashdb = self._hashdb_cache[path]
             except KeyError:
                 hashdata = loader.get_data(path)
-                hashdb = SignedHashDatabase(self.valid_keys)
+                root_path = os.path.dirname(path)
+                hashdb = SignedHashDatabase(self.valid_keys,root_path=root_path)
                 hashdb.parse_hash_data(hashdata)
                 self._hashdb_cache[path] = hashdb
         return hashdb
@@ -565,7 +590,8 @@ class SignedImportManager(object):
                     hashdata = f.read()
                 finally:
                     f.close()
-                hashdb = SignedHashDatabase(self.valid_keys)
+                root_path = os.path.dirname(hashfile)
+                hashdb = SignedHashDatabase(self.valid_keys,root_path=root_path)
                 hashdb.parse_hash_data(hashdata)
                 self._hashdb_cache[hashfile] = hashdb
                 return path,hashdb
@@ -573,6 +599,7 @@ class SignedImportManager(object):
             if path == new_path:
                 break
             path = new_path
+        return None,None
 
     def _imp_load_dynamic(self,name,pathname,file=None):
         """Replacement for imp.load_dynamic.
@@ -589,10 +616,7 @@ class SignedImportManager(object):
             data = f.read()
         finally:
             f.close()
-        try:
-            hashdb.verify("m",name,data)
-        except IntegrityCheckMissing:
-            hashdb.verify("d",pathname[len(basepath)+1:],data)
+        hashdb.verify(pathname,data)
         if file is not None:
             return self._orig_load_dynamic(name,pathname,file)
         else:
@@ -613,10 +637,7 @@ class SignedImportManager(object):
             data = f.read()
         finally:
             f.close()
-        try:
-            hashdb.verify("m",name,data)
-        except IntegrityCheckMissing:
-            hashdb.verify("d",pathname[len(basepath)+1:],data)
+        hashdb.verify(pathname,data)
         if file is not None:
             return self._orig_load_compiled(name,pathname,file)
         else:
@@ -637,10 +658,7 @@ class SignedImportManager(object):
             data = f.read()
         finally:
             f.close()
-        try:
-            hashdb.verify("m",name,data)
-        except IntegrityCheckMissing:
-            hashdb.verify("d",pathname[len(basepath)+1:],data)
+        hashdb.verify(pathname,data)
         if file is not None:
             return self._orig_load_source(name,pathname,file)
         else:
@@ -682,8 +700,9 @@ class SignedLoader:
 
         This method is really key to the whole apparatus - it requests the
         raw module data from the loader object, verifies it against the
-        hash database, and only if it's valid does it request that the loader
-        actually import the module.
+        hash database, and only if it's valid does it proceed to load the
+        module.  Where possible, the module is loaded without re-reading
+        the data from disk.
 
         If you really want to load non-verified code, you can pass the kwd arg
         "verify" as False.  But seriously, why would you want to do that?
@@ -692,16 +711,17 @@ class SignedLoader:
             return sys.modules[fullname]
         except KeyError:
             pass
-        if verify and self.loader is not BuiltinImporter:
-            self.verify_module(fullname)
-        mod = self.loader.load_module(fullname)
+        if not verify or self.loader is BuiltinImporter:
+            mod = self.loader.load_module(fullname)
+        else:
+            mod = self._load_verified_module(fullname)
         mod.__loader__ = self
         return mod
 
     def get_data(self,path):
         """Get the data from the given path, checking its integrity first."""
         data = self.loader.get_data(path)
-        self._verify("d",path,data)
+        self._verify(path,data)
         return data
 
     def is_package(self,fullname):
@@ -736,7 +756,16 @@ class SignedLoader:
 
     def get_filename(self,fullname):
         """Get the filename associated with the given module."""
-        return self.loader.get_filename(fullname)
+        try:
+            return self.loader.get_filename(fullname)
+        except AttributeError:
+            #  ZipImporter doesn't support get_filename,
+            #  but it's to simulate.
+            try:
+                relpath = fullname.replace(".",os.sep)
+                return os.path.join(self.loader.archive,relpath)
+            except AttributeError:
+                raise AttributeError("get_filename")
 
     def get_datafilepath(self,path):
         """Get the full path for the given data file.
@@ -757,86 +786,101 @@ class SignedLoader:
         else:
             return gdfp(path)
 
-    def verify_module(self,fullname):
-        """Verify the given module's data against our signature database."""
-        data = self._get_module_data(fullname)
-        if self.is_package(fullname):
-            while fullname.endswith("."):
-                fullname = fullname[:-1]
-            valname = fullname + ".__init__"
-        else:
-            valname = fullname
-        try:
-            self._verify("m",valname,data)
-        except IntegrityCheckMissing:
-            cname = self.manager.get_canonical_modname(valname)
-            if cname == valname:
-                raise
-            data = self._get_module_data(cname)
-            self._verify("m",cname,data)
-
-    def _verify(self,typ,name,data):
-        """Verify date for the given type specifier and name.
+    def _verify(self,path,data):
+        """Verify data for the given path.
 
         This performs verification against the local database and the main
         manager database.  If a valid hash for the item is not found in
         either location, IntegrityCheckMissing error is raised.
         """
         try:
-            self.hashdb.verify(typ,name,data)
+            self.hashdb.verify(path,data)
         except IntegrityCheckMissing:
-            self.manager.hashdb.verify(typ,name,data)
+            self.manager.hashdb.verify(path,data)
         else:
             try:
-                self.manager.hashdb.verify(typ,name,data)
+                self.manager.hashdb.verify(path,data)
             except IntegrityCheckMissing:
                 pass
 
-    def _get_module_data(self,fullname):
-        """Get the raw data for the given module.
+    def _load_verified_module(self,fullname):
+        """Verify and load the named module.
 
-        This is the data that must be included in a valid signature.  It's
-        a concatentation of any of the following that are found, searched for
-        in order:
-
-            * the source code from the module source file
-            * the raw data from the compiled bytecode file
-            * the raw data from the object file
-
-        This assumes that the loader has files laid out in the same scheme
-        as the default import machinery, so we can convert a module name to
-        a path and read the file using loader.get_data().
+        This assumes that the wrapped loader has files laid out in the same
+        scheme as the default import machinery, so we can convert a module name
+        to a path and read the file using loader.get_data().
         """
+        impname = fullname
+        is_package = False
         if self.is_package(fullname):
-            fullname = fullname + ".__init__"
-        modname = fullname.rsplit(".",1)[-1]
-        #  Try to use the final value of __file__ to determine the files to read.
+            impname += ".__init__"
+            is_package = True
+        modname = impname.rsplit(".",1)[-1]
+        #  Try to use the final value of __file__ to determine files to read.
         #  This works better for packages that play tricks with __path__.
         #  Otherwise, make the filenames by replacing "." with "/" in fullname.
         try:
-            fn = self.get_filename(fullname)
+            fn = self.get_filename(impname)
             dirnm = os.path.dirname(fn)
-        except (ImportError,AttributeError):
-            dirnm = None
-        data = []
-        for (suffix,_,_) in imp.get_suffixes():
+        except (ImportError,AttributeError), e:
+            dirnm = fn = None
+        data_found = False
+        #  Try each canidate file path in turn.
+        for (suffix,_,typ) in imp.get_suffixes():
             for sep in ("/","\\"):
                 if dirnm is None:
-                    path = fullname.replace(".",sep) + suffix
+                    path = impname.replace(".",sep) + suffix
                 else:
                     path = dirnm + sep + modname + suffix
                 try:
-                    new_data = self.loader.get_data(path)
+                    data = self.loader.get_data(path)
                 except AttributeError:
                     err = "loader has no get_data method"
                     raise IntegrityCheckMissing(err)
                 except IOError:
                     pass
                 else:
-                    data.append(new_data)
+                    #  Verify the data using a canonicalised path.
+                    self._verify(path,data)
+                    data_found = True
                     break
-        return "\x00".join(data)
+            else:
+                continue
+            #  If it's data that we can turn into a module by ourselves,
+            #  do so and avoid re-reading it from disk.  Note that this
+            #  defeats the use of cached bytecode files.
+            if typ in (imp.PY_SOURCE,imp.PY_COMPILED):
+                if typ == imp.PY_COMPILED:
+                    code = marshal.loads(data[8:])
+                elif typ == imp.PY_SOURCE:
+                    data = data.replace("\r\n","\n")
+                    code = compile(data,path,"exec")
+                mod = self._create_module(fullname,code,path,is_package)
+                break
+        else:
+            #  It must be something we can't load ourselves.  All checks have
+            #  passed so just get the loader to read it from disk.
+            if not data_found:
+                raise ImportError("no data found for: " + fullname)
+            mod = self.loader.load_module(fullname)
+        return mod
 
+    def _create_module(self,fullname,code,filename,is_package):
+        """Create a new module by executing the given code object."""
+        #filename = filename.replace("/",os.sep)
+        mod = sys.modules.get(fullname)
+        if not mod:
+            mod = imp.new_module(fullname)
+            sys.modules[fullname] = mod
+        mod.__name__ = fullname
+        mod.__file__ = filename
+        mod.__loader__ = self
+        if self.is_package(fullname):
+            mod.__package__ = fullname
+        if is_package:
+            mod.__path__ = [os.path.dirname(filename)]
+        exec code in mod.__dict__
+        return mod
 
 
 class BuiltinImporter(object):
@@ -1079,21 +1123,23 @@ class DefaultImporter:
         """
         if self.base_path is None:
             raise OSError
-        f = open(os.path.join(self.base_path,path),"rb")
+        path = self._normpath(path)
+        f = open(path,"rb")
         try:
             return f.read()
         finally:
             f.close()
 
     def get_filename(self,fullname):
-        """Get the code object for the given module."""
+        """Get the filename assigned to the given module."""
         file,pathname,description = self._get_module_info(fullname)
         if file is not None:
             file.close()
         if description[2] == imp.PKG_DIRECTORY:
-            pkgpath = os.path.join(self.path,fullname.rsplit(".",1)[1])
-            importer = _get_default_importer(pkgpath)
-            return importer.get_filename(fullname + ".__init__")
+            for nm in ("__init__.pyc","__init__.py"):
+                if os.path.exists(os.path.join(pathname,nm)):
+                    return os.path.join(pathname,nm)
+            raise ImportError("no module named " + fullname)
         else:
             return pathname
 
@@ -1101,6 +1147,12 @@ class DefaultImporter:
         """Get the full path for the given data file."""
         if self.base_path is None:
             return None
+        return self._normpath(path)
+
+    def _normpath(self,path):
+        if not os.path.isabs(self.base_path):
+            if path.startswith(self.base_path+os.sep):
+                return path[len(self.base_path)+1:]
         return os.path.join(self.base_path,path)
 
 

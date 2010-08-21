@@ -566,28 +566,6 @@ def _is_executable(path):
         return ("executable" in p.stdout.read())
 
 
-def _is_in_package(root,path,os=os):
-    """Check whether the given path is inside a package directory structure.
-
-    This is used to decide whether to sign it as a module or a datafile.
-    """
-    while path != root:
-        for (suffix,_,_) in imp.get_suffixes():
-            if os.path.exists(os.path.join(path,"__init__"+suffix)):
-                break
-        else:
-            return False
-        path = os.path.dirname(path)
-    return True
-
-
-def _get_module_basename(filepath,os=os):
-    """Get the base name of the module at the given file path."""
-    for (suffix,_,_) in imp.get_suffixes():
-        if filepath.endswith(suffix):
-            return filepath[:-1*len(suffix)]
-    return None
-
 def _read_file(path):
     """Default read() function for use with hash_files()."""
     with open(path,"rb") as f:
@@ -608,7 +586,6 @@ def hash_files(path,files=None,hash="sha1",read=_read_file,os=os):
         hash = md5
     else:
         raise ValueError("unknown hash type: %s" % (hash,))
-    modhashes = {}
     datahashes = {}
     while path.endswith(os.sep):
         path = path[:-1]
@@ -623,36 +600,12 @@ def hash_files(path,files=None,hash="sha1",read=_read_file,os=os):
                     yield os.path.join(dirnm,filenm)
         files = files()
     for filepath in files:
-        #  If we're not in a package, sign everything as a datafile.
-        #  If we are, try to sign files as a module first.
-        if not _is_in_package(path,os.path.dirname(filepath),os=os):
-            #  Just sign it as a datafile
-            hashname = filepath[prefixlen:].replace(os.sep,"/")
-            datahashes[hashname] = hash(read(filepath)).hexdigest()
-        else:
-            basenm = _get_module_basename(filepath,os=os)
-            if basenm is None:
-                #  Just sign it as a datafile
-                hashname = filepath[prefixlen:].replace(os.sep,"/")
-                datahashes[hashname] = hash(read(filepath)).hexdigest()
-            else:
-                #  We sign the concatentation of all files in the order
-                #  they are found by the import machinery.
-                modname = basenm[prefixlen:].replace(os.sep,".")
-                if modname not in modhashes:
-                    moddata = []
-                    for (suffix,_,_) in imp.get_suffixes():
-                        if os.path.exists(basenm+suffix):
-                            modpath = basenm+suffix
-                            moddata.append(read(modpath))
-                    moddata = "\x00".join(moddata)
-                    modhashes[modname] = hash(moddata).hexdigest()
+        hashname = filepath[prefixlen:].replace(os.sep,"/")
+        datahashes[hashname] = hash(read(filepath)).hexdigest()
     #  Concatenate the various hashes.  Put then in sorted order so
     #  it's easy to locate a particular hash by hand.
-    for nm,hash in sorted(modhashes.items()):
-        output.append("m %s %s" % (hash,nm))
     for nm,hash in sorted(datahashes.iteritems()):
-        output.append("d %s %s" % (hash,nm))
+        output.append("%s %s" % (hash,nm))
     return "\n".join(output)
 
 

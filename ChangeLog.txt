@@ -1,4 +1,10 @@
 
+v0.3.0
+
+    * Removed separate hashing of modules vs data files - all files are now
+      hashed independently and the various files that make up a module import
+      are checked independently at runtime.
+
 v0.2.0
 
     * Factor padding algorithm out from the RSA key class, so that it's easier
@@ -9,7 +15,7 @@ v0.2.0
           * "pss-sha1" is the default padding scheme; change it by setting
             the attribute "default_padding_scheme" on the key.
     * output hash data in sorted order, for easier debugging by hand.
-    * moved signedimp.pkres to signedimp.compat.pkgres.
+    * moved signedimp.pkgres to signedimp.compat.pkgres.
     * added signedimp.compat.esky, providing code to add signedimp support when
       freezing an application with esky.
     * tools.get_bootstrap_code() now returns code fully equivalent to doing
