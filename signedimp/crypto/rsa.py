@@ -6,29 +6,39 @@
 
 """
 
-import os
-import struct
-import hmac
-import hashlib
-from math import ceil
-
-import pickle  # yes, I really do need the pure-python version
-
 from Crypto.Util.number import bytes_to_long, long_to_bytes
 from Crypto.Util.number import size as num_bits
 from Crypto.PublicKey import RSA as _RSA
 from Crypto.Cipher import AES
 
+import os
+from math import ceil
+
 from signedimp.cryptobase.rsa import RSAKey, math
 from signedimp.crypto.pss import PSS, strxor
 
+#  These will be imported lazily as required
+hmac = None
+hashlib = None
+struct = None
+pickle = None
+
 
 def hmac_sha1(key,msg=""):
+    global hmac
+    global hashlib
+    if hmac is None:
+        import hmac
+    if hashlib is None:
+        import hashlib
     return hmac.HMAC(key,msg,hashlib.sha1).digest()
 
 
 def pbkdf2(password,salt,iters,reqlen):
     """Password-Based Key Derivation Function."""
+    global struct
+    if struct is None:
+        import struct
     hlen = len(hmac_sha1(""))
     nchunks = int(ceil(reqlen / float(hlen)))
     res = ""
@@ -106,6 +116,9 @@ class RSAKey(RSAKey):
         This simple stores a pickle of the key into the given file, encrypted
         with a key derived from the password.
         """
+        global pickle
+        if pickle is None:
+            import pickle
         #  To save difficulty in unpadding, we add pickle.STOP until we get
         #  to the block size.  This is ignored by the unpickler.
         assert len(pickle.STOP) == 1
@@ -130,6 +143,9 @@ class RSAKey(RSAKey):
     @classmethod
     def load_from_file(cls,f,password):
         """Load from given filelike object, decrypting with given password."""
+        global pickle
+        if pickle is None:
+            import pickle
         #  Read and validate the cipher, mode and hmac types.
         (ctyp,mtyp,htyp) = f.readline().strip().split()
         if ctyp != "AES" or mtyp != "CBC" or htyp != "SHA1":
