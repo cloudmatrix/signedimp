@@ -14,6 +14,8 @@ from signedimp.cryptobase.sha1 import sha1
 class math(math):
     """Math utilities for RSA, designed to be easily replaced."""
 
+    pow = staticmethod(pow)
+
     @staticmethod
     def bytes_to_long(bytes):
         n = 0
@@ -99,11 +101,11 @@ class RSAKey(object):
 
     def encrypt(self,message):
         m = self._math.bytes_to_long(message)
-        return self._math.long_to_bytes(pow(m,self.pub_exponent,self.modulus))
+        return self._math.long_to_bytes(self._math.pow(m,self.pub_exponent,self.modulus))
 
     def decrypt(self,message):
         m = self._math.bytes_to_long(message)
-        return self._math.long_to_bytes(pow(m,self.priv_exponent,self.modulus))
+        return self._math.long_to_bytes(self._math.pow(m,self.priv_exponent,self.modulus))
 
     def sign(self,message,padding_scheme=None):
         if padding_scheme is None:
