@@ -6,6 +6,8 @@
 
 """
 
+from __future__ import absolute_import
+
 try:
     from hashlib import sha1
 except ImportError:
