@@ -43,8 +43,7 @@ from signedimp.crypto.sha1 import sha1
 from signedimp.crypto.md5 import md5
 from signedimp.crypto.rsa import RSAKey
 
-if sys.platform == "win32":
-    from signedimp import winres
+from signedimp import refreeze
 
 
 def get_bootstrap_code(indent=""):
@@ -286,34 +285,21 @@ except (IndexError,AttributeError):
     signedimp.SignedImportManager([k]).install()
 
 """ % locals()
-    bscode = compile(bscode,"__main__.py","exec")
     #  Hack the bootstrap code into the start of each script to be run.
-    #  This unfortunately depends on some inner details of the py2exe format.
     for nm in os.listdir(appdir):
         if nm.endswith(".exe"):
             exepath = os.path.join(appdir,nm)
             try:
-                appcode = winres.load_resource(exepath,u"PYTHONSCRIPT",1,0)
+                app = refreeze.Py2Exe(exepath)
             except EnvironmentError:
-                continue
-            sz = struct.calcsize("iiii")
-            (magic,optmz,bfrd,codelen) = struct.unpack("iiii",appcode[:sz])
-            assert magic == 0x78563412
-            codebytes = appcode[sz:-1]
-            for i,c in enumerate(codebytes):
-                if c == "\x00":
-                    relarcname = codebytes[:i]
-                    codelist = marshal.loads(codebytes[i+1:-1])
-                    break
-            codelist.insert(0,bscode)
-            codebytes = marshal.dumps(codelist)
-            appcode = struct.pack("iiii",magic,optmz,bfrd,len(codebytes)) \
-                      + relarcname + "\x00" + codebytes + "\x00\x00"
-            winres.add_resource(exepath,appcode,u"PYTHONSCRIPT",1,0)
+                pass
+            else:
+                app.prepend_code(bscode)
     #  Sign anything that might be an importable zipfile.
     for nm in os.listdir(appdir):
         if nm.endswith(".exe") or nm.endswith(".zip"):
             try:
+
                 sign_zipfile(os.path.join(appdir,nm),key,hash=hash)
             except zipfile.BadZipfile:
                 pass
@@ -384,12 +370,8 @@ except (IndexError,AttributeError):
     signedimp.SignedImportManager([k]).install()
 
 """ % locals()
-    bsfile = os.path.join(appdir,"Contents","Resources","__boot__.py")
-    with open(bsfile,"r+") as f:
-        oldcode = f.read()
-        f.seek(0)
-        f.write(bscode)
-        f.write(oldcode)
+    app = refreeze.Py2App(appdir)
+    app.prepend_code(bscode)
     #  Sign the main library.zip
     libdir = os.path.join(appdir,"Contents","Resources","lib")
     libdir = os.path.join(libdir,"python%d.%d"%sys.version_info[:2])
@@ -452,7 +434,7 @@ def sign_cxfreeze_app(appdir,key=None,hash="sha1",check_modules=None):
     #  Build the bootstrap code to be inserted into each executable.  Since
     #  it replaces the cx_Freeze__init__ script it needs to exec that once
     #  the signed imports are in place.
-    bscode_tmplt =  """
+    bscode =  """
 import sys
 
 #  Check the boot-time modules if necessary.
@@ -481,47 +463,16 @@ try:
         signedimp.SignedImportManager([k]).install()
 except (IndexError,AttributeError):
     signedimp.SignedImportManager([k]).install()
-
-#  Bootstrap the original cx_Freeze__init__ module.
-#  If it was in the appended zipfile, we're given it as a marshalled string.
-#  If not, we need to search for it in the other zipfiles.
-if %(has_initcode)r:
-    import marshal
-    exec marshal.loads(%(initcode)r)
-else:
-    import zipimport
-    initmod = "cx_Freeze__init__"
-    try:
-        imp = zipimport.zipimporter(EXCLUSIVE_ZIP_FILE_NAME)
-        imp.find_module(initmod)
-        INITSCRIPT_ZIP_FILE_NAME = EXCLUSIVE_ZIP_FILE_NAME
-    except ImportError:
-        imp = zipimport.zipimporter(SHARED_ZIP_FILE_NAME)
-        imp.find_module(initmod)
-        INITSCRIPT_ZIP_FILE_NAME = SHARED_ZIP_FILE_NAME
-    code = imp.get_code(initmod)
-    exec code
-    
-"""
+""" % locals()
     #  Add the bootstrapping code to any executables found in the dir.
     for nm in os.listdir(appdir):
         fpath = os.path.join(appdir,nm)
         if not os.path.isfile(fpath) or not _is_executable(fpath):
             continue
+        app = refreeze.CXFreeze(fpath)
+        app.prepend_code(bscode)
         zf = zipfile.PyZipFile(fpath,"a")
         try:
-            #  If it contains the init module already, we'll need to
-            #  grab its code to bootstrap into it.
-            try:
-                initcode = repr(zf.read(initmod+".pyc")[8:])
-            except KeyError:
-                initcode = ""
-            #  Store our own code as the cxfreeze init module
-            has_initcode = bool(initcode)
-            bssrc = bscode_tmplt % locals()
-            bscode = imp.get_magic() + struct.pack("<i",time.time())
-            bscode += marshal.dumps(compile(bssrc,initmod+".py","exec"))
-            zf.writestr(initmod+".pyc",bscode)
             #  Make sure the signedimp module is bundled into the zipfile
             zf.writepy(os.path.dirname(signedimp.__file__))
             #  The python interpreter itself tries to import various encodings
