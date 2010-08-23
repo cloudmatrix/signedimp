@@ -21,6 +21,7 @@ def _make_signedimp_chainload(orig_chainload):
     def _chainload(target_dir):
         key = signedimp.%(pubkey)r
         manager = signedimp.SignedImportManager([key])
+        manager.install()
         #  On OSX, the signature file may be within a bundled ".app" directory
         #  or in the top level of the target dir.
         if sys.platform == "darwin":
@@ -47,6 +48,11 @@ def _make_signedimp_chainload(orig_chainload):
                 break
             except EnvironmentError:
                 pass
+        target_exe_dir = dirname(target_exe[len(signed_dir):])
+        for nm in listdir(dirname(target_exe)):
+            if nm.startswith("python2") or nm.startswith("python3"):
+                if nm.endswith(".dll"):
+                    loader.get_data(target_exe_dir+nm)
         orig_chainload(target_dir)
     return _chainload
 _chainload = _make_signedimp_chainload(_chainload)
