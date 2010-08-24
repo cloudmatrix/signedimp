@@ -1,4 +1,9 @@
 
+v0.3.1
+
+    * Conform to some subtler points of the PEP302 importer spec, with respect
+      to module reloading and sys.meta_path.
+
 v0.3.0
 
     * Removed separate hashing of modules vs data files - all files are now
