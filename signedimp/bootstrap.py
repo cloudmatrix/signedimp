@@ -587,23 +587,18 @@ class SignedImportManager(object):
         This emulates the standard handling of sys.path_hooks, with the added
         bonus of returning a DefaultImporter instance if no hook is found.
         """
-        try:
-            importer = sys.path_importer_cache[path]
-        except KeyError:
+        importer = sys.path_importer_cache.get(path,None)
+        if importer is None:
             for importer_class in sys.path_hooks:
                 try:
                     importer = importer_class(path)
                 except ImportError:
                     pass
                 else:
-                    sys.path_importer_cache[path] = importer
                     break
             else:
-                sys.path_importer_cache[path] = None
                 importer = _get_default_importer(path)
-        else:
-            if importer is None:
-                importer = _get_default_importer(path)
+            sys.path_importer_cache[path] = importer
         return importer
         
     def get_canonical_modname(self,fullname):
