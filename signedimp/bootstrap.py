@@ -232,8 +232,8 @@ class _signedimp_util:
     def b64decode(data):
         """Pure-python base-64 decoder.
 
-        This is just awful and should only be used when the base64 module
-        is not available.
+        This is just awful.  But we decode so little base64 data that it's not
+        really worth trying to load up the native decoder.
         """
         output = []
         if len(data) % 4 != 0:
@@ -262,12 +262,6 @@ class _signedimp_util:
         available.  It will attempt to import and use better implementations
         of the utility functions defined on this class.
         """
-        #  Try to use native b64decode
-        try:
-            import base64
-            _signedimp_util.b64decode = staticmethod(base64.b64decode)
-        except (ImportError,IntegrityCheckMissing):
-            pass
         #  Try to use our fast-path crypto library
         try:
             from signedimp.crypto import md5
