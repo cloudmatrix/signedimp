@@ -530,6 +530,7 @@ class SignedImportManager(object):
         given module, and wraps it in a SignedLoader instance so that all
         data is verified immediately prior to being loaded.
         """
+        cached = True
         if path is not None and fullname.startswith("signedimp."):
             # Careful now, the signedimp module may have been created by
             # hand and its __path__ may not reflect the real sys.path.
@@ -539,10 +540,11 @@ class SignedImportManager(object):
                     path = []
                     for p in sys.path:
                         path.append(os.path.join(p,"signedimp"))
-        loader = self._find_loader(fullname,path)
+                cached = False
+        loader = self._find_loader(fullname,path,cached=cached)
         return SignedLoader(self,loader)
 
-    def _find_loader(self,fullname,path):
+    def _find_loader(self,fullname,path,cached=True):
         """Find the loader that would normally be used for the given module.
 
         This basically emulates the standard lookup machinery defined by PEP
@@ -575,19 +577,21 @@ class SignedImportManager(object):
         if path is None:
             path = sys.path
         for pathitem in path:
-            importer = self._get_importer(pathitem)
+            importer = self._get_importer(pathitem,cached=cached)
             loader = importer.find_module(fullname)
             if loader is not None:
                 return loader
         raise ImportError(fullname)
 
-    def _get_importer(self,path):
+    def _get_importer(self,path,cached=True):
         """Get the importer for the given sys.path item.
 
         This emulates the standard handling of sys.path_hooks, with the added
         bonus of returning a DefaultImporter instance if no hook is found.
         """
-        importer = sys.path_importer_cache.get(path,None)
+        importer = None
+        if cached:
+            importer = sys.path_importer_cache.get(path,None)
         if importer is None:
             for importer_class in sys.path_hooks:
                 try:
