@@ -18,6 +18,9 @@ _find_adapter = pkg_resources._find_adapter
 _provider_factories = pkg_resources._provider_factories
 DefaultProvider  = pkg_resources.DefaultProvider
 
+import sys
+print >>sys.stderr, "REGISTERING SIGNEDIMP WITH PKGRES", pkg_resources
+
 def _get_provider(mod):
     """Get the pkg_resources provider appropriate for the given loader.
 
@@ -28,5 +31,7 @@ def _get_provider(mod):
 
 pkg_resources.register_loader_type(signedimp.SignedLoader,_get_provider)
 pkg_resources.register_loader_type(signedimp.DefaultImporter,DefaultProvider)
+
+print >>sys.stderr, "PROVIDERS NOW", _provider_factories
 
 

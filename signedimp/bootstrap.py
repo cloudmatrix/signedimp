@@ -350,6 +350,7 @@ class _signedimp_util:
     def debug(msg,*args):
         """Print a debugging message to stderr, if enabled."""
         if __debug__ and signedimp_debug:
+            msg = "  "*len(_signedimp_util._timers) + msg
             if args:
                 msg = msg % args
             sys.stderr.write(msg + "\n")
