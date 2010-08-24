@@ -127,6 +127,8 @@ os = _signedimp_make_os_module()
 
 HASHFILE_NAME = "signedimp-manifest.txt"
 
+signedimp_debug = True
+
 
 class IntegrityCheckError(Exception):
     """Error raised when integrity of a resource cannot be verified."""
@@ -299,14 +301,14 @@ class _signedimp_util:
     _timers = []
     @staticmethod
     def start_timer(msg,*args):
-        if __debug__:
+        if __debug__ and signedimp_debug:
             msg = msg % args
             msg += " [%.2f secs]" % (time.clock(),)
             _signedimp_util.debug(msg)
             _signedimp_util._timers.append([time.besttime()])
     @staticmethod
     def checkpoint_timer(msg,*args):
-        if __debug__:
+        if __debug__ and signedimp_debug:
             now = time.besttime()
             msg = msg % args
             _signedimp_util._timers[-1].append(now)
@@ -314,7 +316,7 @@ class _signedimp_util:
             _signedimp_util.debug(msg)
     @staticmethod
     def stop_timer(msg,*args):
-        if __debug__:
+        if __debug__ and signedimp_debug:
             now = time.besttime()
             tl = _signedimp_util._timers.pop()
             msg = msg % args
@@ -323,7 +325,7 @@ class _signedimp_util:
 
     @staticmethod
     def profile_call(func):
-        if not __debug__:
+        if not __debug__ or not signedimp_debug:
             return func
         repr = _signedimp_util._reprobj
         def wrapper(self,*args,**kwds):
@@ -344,25 +346,14 @@ class _signedimp_util:
             obj = obj[:20] + "..."
         return repr(obj)
 
-    _logger = None
     @staticmethod
     def debug(msg,*args):
-        """Print a debugging message to stderr (or logging if enabled)."""
-        if __debug__:
-            if "logging" in sys.modules:
-                if _signedimp_util._logger is None:
-                    import logging
-                    try:
-                        _signedimp_util._logger = logging.getLogger("signedimp")
-                    except AttributeError:
-                          pass
-            if _signedimp_util._logger is not None:
-                _signedimp_util._logger.debug(msg,*args)
-            else:
-                if args:
-                    msg = msg % args
-                sys.stderr.write(msg + "\n")
-                sys.stderr.flush()
+        """Print a debugging message to stderr, if enabled."""
+        if __debug__ and signedimp_debug:
+            if args:
+                msg = msg % args
+            sys.stderr.write(msg + "\n")
+            sys.stderr.flush()
         
 
 
