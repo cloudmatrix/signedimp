@@ -568,7 +568,6 @@ class SignedImportManager(object):
             loader = BuiltinImporter.find_module(fullname)
             if loader is not None:
                 return loader
-            path = sys.path
         #  Try the items on sys.meta_path.  Only those appearing after this
         #  object are tried, as anything before it must already have been
         #  invoked and failed to load the module.
@@ -581,6 +580,8 @@ class SignedImportManager(object):
             elif mphook is self:
                 found_me = True
         # Try the items on the given path (or sys.path if not specified)
+        if path is None:
+            path = sys.path
         for pathitem in path:
             importer = self._get_importer(pathitem)
             loader = importer.find_module(fullname)
@@ -787,10 +788,6 @@ class SignedLoader:
         If you really want to load non-verified code, you can pass the kwd arg
         "verify" as False.  But seriously, why would you want to do that?
         """
-        try:
-            return sys.modules[fullname]
-        except KeyError:
-            pass
         if not verify or self.loader is BuiltinImporter:
             mod = self.loader.load_module(fullname)
         else:
@@ -949,19 +946,22 @@ class SignedLoader:
 
     def _create_module(self,fullname,code,filename,is_package):
         """Create a new module by executing the given code object."""
-        #filename = filename.replace("/",os.sep)
+        created = False
         mod = sys.modules.get(fullname)
         if not mod:
             mod = imp.new_module(fullname)
             sys.modules[fullname] = mod
-        mod.__name__ = fullname
-        mod.__file__ = filename
-        mod.__loader__ = self
-        if self.is_package(fullname):
-            mod.__package__ = fullname
-        if is_package:
-            mod.__path__ = [os.path.dirname(filename)]
-        exec code in mod.__dict__
+            created = True
+        try:
+            mod.__file__ = filename
+            mod.__loader__ = self
+            if is_package:
+                mod.__path__ = [os.path.dirname(filename)]
+            exec code in mod.__dict__
+        except Exception:
+            if created:
+                sys.modules.pop(fullname)
+            raise
         return mod
 
 
