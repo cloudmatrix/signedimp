@@ -832,16 +832,14 @@ class SignedLoader:
         """
         return self.loader.get_source(fullname)
 
+    @_signedimp_util.profile_call
     def get_filename(self,fullname):
         """Get the filename associated with the given module."""
         try:
             return self.loader.get_filename(fullname)
         except AttributeError:
-            #  ZipImporter doesn't support get_filename,
-            #  but it's to simulate.
             try:
-                relpath = fullname.replace(".",os.sep)
-                return os.path.join(self.loader.archive,relpath)
+                return self.loader._get_filename(fullname)
             except AttributeError:
                 raise AttributeError("get_filename")
 
@@ -899,7 +897,7 @@ class SignedLoader:
         #  This works better for packages that play tricks with __path__.
         #  Otherwise, make the filenames by replacing "." with "/" in fullname.
         try:
-            fn = self.get_filename(impname)
+            fn = self.get_filename(fullname)
             dirnm = os.path.dirname(fn)
         except (ImportError,AttributeError), e:
             dirnm = fn = None
