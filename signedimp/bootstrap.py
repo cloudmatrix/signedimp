@@ -49,6 +49,27 @@ if "marshal" not in sys.builtin_module_names:
 import marshal
 
 
+#  Get the "time" module for debugging/profiling purposes.
+#  If it's not builtin, just use a dummy implementation.
+if "time" not in sys.builtin_module_names:
+    class time:
+        @staticmethod
+        def time():
+            return 0
+        @staticmethod
+        def clock():
+            return 0
+        @staticmethod
+        def besttime():
+            return 0
+else:
+    import time
+    if sys.platform == "win32":
+        time.besttime = time.clock
+    else:
+        time.besttime = time.time
+
+
 #  Get a minimal simulation of the "os" module.
 #  It must use only builtins or this whole exercise is pointless.
 def _signedimp_make_os_module():
@@ -281,6 +302,75 @@ class _signedimp_util:
                         pass
         #  If all else fails, we've left them as pure-python implementations
 
+    _timers = []
+    @staticmethod
+    def start_timer(msg,*args):
+        if __debug__:
+            msg = msg % args
+            msg += " [%.2f secs]" % (time.clock(),)
+            _signedimp_util.debug(msg)
+            _signedimp_util._timers.append([time.besttime()])
+    @staticmethod
+    def checkpoint_timer(msg,*args):
+        if __debug__:
+            now = time.besttime()
+            msg = msg % args
+            _signedimp_util._timers[-1].append(now)
+            msg += " [%.2f of %.2f secs]" % (now - _signedimp_util._timers[-1][-2],time.clock(),)
+            _signedimp_util.debug(msg)
+    @staticmethod
+    def stop_timer(msg,*args):
+        if __debug__:
+            now = time.besttime()
+            tl = _signedimp_util._timers.pop()
+            msg = msg % args
+            msg += " [%.2f of %.2f secs]" % (now - tl[0],time.clock(),)
+            _signedimp_util.debug(msg)
+
+    @staticmethod
+    def profile_call(func):
+        if not __debug__:
+            return func
+        repr = _signedimp_util._reprobj
+        def wrapper(self,*args,**kwds):
+            argstr = ",".join(repr(a) for a in args)
+            argstr += "," + ",".join(k+"="+repr(v) for k,v in kwds.items())
+            _signedimp_util.start_timer("CALL> %s(%s)",func.func_name,argstr)
+            try:
+                return func(self,*args,**kwds)
+            finally:
+                _signedimp_util.stop_timer("CALL< %s(%s)",func.func_name,argstr)
+        return wrapper
+
+    @staticmethod
+    def _reprobj(obj):
+        if not isinstance(obj,basestring):
+            obj = repr(obj)
+        if len(obj) > 200:
+            obj = obj[:20] + "..."
+        return repr(obj)
+
+    _logger = None
+    @staticmethod
+    def debug(msg,*args):
+        """Print a debugging message to stderr (or logging if enabled)."""
+        if __debug__:
+            if "logging" in sys.modules:
+                if _signedimp_util._logger is None:
+                    import logging
+                    try:
+                        _signedimp_util._logger = logging.getLogger("signedimp")
+                    except AttributeError:
+                          pass
+            if _signedimp_util._logger is not None:
+                _signedimp_util._logger.debug(msg,*args)
+            else:
+                if args:
+                    msg = msg % args
+                sys.stderr.write(msg + "\n")
+                sys.stderr.flush()
+        
+
 
 
 class SignedHashDatabase(object):
@@ -312,6 +402,7 @@ class SignedHashDatabase(object):
                     path = path[1:]
         return path
 
+    @_signedimp_util.profile_call
     def verify(self,path,data):
         """Verify data for the given path against our hash database."""
         path = self._normpath(path)
@@ -335,6 +426,7 @@ class SignedHashDatabase(object):
         """Compatability wrapper for compiling string.strip() under pypy."""
         return s.strip("\n").strip("\r").strip(" ")
 
+    @_signedimp_util.profile_call
     def parse_hash_data(self,hashdata):
         """Load hash data from the given string.
 
@@ -444,6 +536,7 @@ class SignedImportManager(object):
         #  Try to speed things up by loading faster crypto primitives.
         _signedimp_util.recreate()
 
+    @_signedimp_util.profile_call
     def find_module(self,fullname,path=None):
         """Get the loader for the given module.
 
@@ -551,6 +644,7 @@ class SignedImportManager(object):
         resolved.append(self.module_aliases[unresolved])
         return ".".join(reversed(resolved))
         
+    @_signedimp_util.profile_call
     def load_hashdb(self,loader,path):
         """Load the hashdb at the given path in the given loader.
         
@@ -601,6 +695,19 @@ class SignedImportManager(object):
             path = new_path
         return None,None
 
+    def _verify_file(self,pathname):
+        """Verify a file found on the local filesystem"""
+        (basepath,hashdb) = self._find_hashdb(pathname)
+        if hashdb is None:
+            raise IntegrityCheckMissing(pathname)
+        f = open(pathname,"rb")
+        try:
+            data = f.read()
+        finally:
+            f.close()
+        hashdb.verify(pathname,data)
+
+    @_signedimp_util.profile_call
     def _imp_load_dynamic(self,name,pathname,file=None):
         """Replacement for imp.load_dynamic.
         
@@ -608,20 +715,13 @@ class SignedImportManager(object):
         function, checking signatures before calling back to the original
         implementation.
         """
-        (basepath,hashdb) = self._find_hashdb(pathname)
-        if hashdb is None:
-            raise IntegrityCheckMissing(pathname)
-        f = open(pathname,"rb")
-        try:
-            data = f.read()
-        finally:
-            f.close()
-        hashdb.verify(pathname,data)
+        self._verify_file(pathname)
         if file is not None:
             return self._orig_load_dynamic(name,pathname,file)
         else:
             return self._orig_load_dynamic(name,pathname)
 
+    @_signedimp_util.profile_call
     def _imp_load_compiled(self,name,pathname,file=None):
         """Replacement for imp.load_compiled.
         
@@ -629,20 +729,13 @@ class SignedImportManager(object):
         function, checking signatures before calling back to the original
         implementation.
         """
-        (basepath,hashdb) = self._find_hashdb(pathname)
-        if hashdb is None:
-            raise IntegrityCheckMissing(pathname)
-        f = open(pathname,"rb")
-        try:
-            data = f.read()
-        finally:
-            f.close()
-        hashdb.verify(pathname,data)
+        self._verify_file(pathname)
         if file is not None:
             return self._orig_load_compiled(name,pathname,file)
         else:
             return self._orig_load_compiled(name,pathname)
 
+    @_signedimp_util.profile_call
     def _imp_load_source(self,name,pathname,file=None):
         """Replacement for imp.load_source.
         
@@ -650,15 +743,7 @@ class SignedImportManager(object):
         function, checking signatures before calling back to the original
         implementation.
         """
-        (basepath,hashdb) = self._find_hashdb(pathname)
-        if hashdb is None:
-            raise IntegrityCheckMissing(pathname)
-        f = open(pathname,"rb")
-        try:
-            data = f.read()
-        finally:
-            f.close()
-        hashdb.verify(pathname,data)
+        self._verify_file(pathname)
         if file is not None:
             return self._orig_load_source(name,pathname,file)
         else:
@@ -695,6 +780,7 @@ class SignedLoader:
             raise AttributeError("unsafe attribute type: %s" % (attr,))
         return value
 
+    @_signedimp_util.profile_call
     def load_module(self,fullname,verify=True):
         """Load the specified module, checking its integrity first.
 
@@ -718,6 +804,7 @@ class SignedLoader:
         mod.__loader__ = self
         return mod
 
+    @_signedimp_util.profile_call
     def get_data(self,path):
         """Get the data from the given path, checking its integrity first."""
         data = self.loader.get_data(path)
@@ -786,6 +873,7 @@ class SignedLoader:
         else:
             return gdfp(path)
 
+    @_signedimp_util.profile_call
     def _verify(self,path,data):
         """Verify data for the given path.
 
