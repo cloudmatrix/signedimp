@@ -127,7 +127,7 @@ os = _signedimp_make_os_module()
 
 HASHFILE_NAME = "signedimp-manifest.txt"
 
-signedimp_debug = True
+signedimp_debug = False
 
 
 class IntegrityCheckError(Exception):
