@@ -8,7 +8,12 @@
 
 
 from signedimp.cryptobase.pss import PSS, math
-from signedimp.cryptobase.sha1 import sha1
+
+global sha1
+try:
+    sha1
+except NameError:
+    from signedimp.cryptobase.sha1 import sha1
 
 
 class math(math):
@@ -114,16 +119,18 @@ class RSAKey(object):
             padding_scheme = "pss-sha1"
         encsig = self._get_padder(padding_scheme).encode(message)
         signature = self.decrypt(encsig)
-        return padding_scheme + ":" + signature.rjust(self.size/8,"\x00")
+        return padding_scheme + ":" + _rjust(signature,self.size/8,"\x00")
 
     def verify(self,message,signature):
         try:
-            padding_scheme,signature = signature.split(":",1)
-        except (ValueError,TypeError):
+            bits = signature.split(":")
+            padding_scheme = bits[0]
+            signature = ":".join(bits[1:])
+        except (ValueError,TypeError,IndexError):
             return False
-        signature = signature.rjust(self.size/8,"\x00")
+        signature = _rjust(signature,self.size/8,"\x00")
         encsig = self.encrypt(signature)
-        encsig = encsig.rjust(self.size/8,"\x00")
+        encsig = _rjust(encsig,self.size/8,"\x00")
         try:
             padder = self._get_padder(padding_scheme)
         except ValueError:
@@ -153,8 +160,19 @@ class RSAKey(object):
         def __init__(self,size):
             self.size = size
         def encode(self,message):
-            return message.rjust(self.size/8,"\x00")
+            return _rjust(message,self.size/8,"\x00")
         def verify(self,message,signature):
-            return (message.rjust(self.size/8,"\x00") == signature)
+            return (_rjust(message,self.size/8,"\x00") == signature)
 
+
+def _rjust(string,size,pad=" "):
+    """Right-justify a string to the given size.
+
+    This is a re-implementation for RPython compatability, as they don't
+    seem to have implemented rjust.
+    """
+    if len(string) >= size:
+        return string
+    extra = pad * (size - len(string))
+    return string + extra  
 

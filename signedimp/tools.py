@@ -46,6 +46,24 @@ from signedimp.crypto.rsa import RSAKey
 from signedimp import refreeze
 
 
+def _get_source_lines(mod,indent,inline_crypto=True):
+    if isinstance(mod,basestring):
+        mod = __import__(mod,fromlist=["*"])
+    src = inspect.getsource(mod)
+    for ln in src.split("\n"):
+        if inline_crypto:
+            if ln.strip().startswith("from signedimp.cryptobase."):
+                lnstart = ln.find("from")
+                newindent = indent + ln[:lnstart]
+                newmod = ln.strip()[5:].split()[0]
+                for newln in _get_source_lines(newmod,newindent):
+                    yield newln
+            else:
+                yield indent + ln
+        else:
+            yield indent + ln
+
+
 def get_bootstrap_code(indent=""):
     """Get sourcecode you can use for inline bootstrapping of signed imports.
 
@@ -65,18 +83,6 @@ def get_bootstrap_code(indent=""):
        ''' % (signedimp.tools.get_bootstrap_code(),)
 
     """
-    def _get_source_lines(mod,indent):
-        mod = __import__(mod,fromlist=["*"])
-        src = inspect.getsource(mod)
-        for ln in src.split("\n"):
-            if ln.strip().startswith("from signedimp.cryptobase."):
-                lnstart = ln.find("from")
-                newindent = indent + ln[:lnstart]
-                newmod = ln.strip()[5:].split()[0]
-                for newln in _get_source_lines(newmod,newindent):
-                    yield newln
-            else:
-                yield indent + ln
     return """
 %(indent)ssignedimp = sys.modules.get("signedimp",None)
 %(indent)sif signedimp is None:

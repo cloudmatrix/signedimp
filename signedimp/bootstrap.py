@@ -217,18 +217,17 @@ class _signedimp_util:
             elif c == "/":
                 n += 63
             else:
-                raise ValueError("invalud base64-encoded data")
+                raise ValueError("invalid base64-encoded data")
         bytes = []
         while n > 0:
             bytes.append(chr(n & 0x000000FF))
             bytes.append(chr((n & 0x0000FF00) >> 8))
             bytes.append(chr((n & 0x00FF0000) >> 16))
             bytes.append(chr((n & 0xFF000000) >> 24))
-            n = n >> 32
+            n = (n & 0x00000000) >> 32
         while len(bytes) < 3:
             bytes.append("\x00")
-        bytes = "".join(reversed(bytes))
-        return bytes[-3:]
+        return bytes[2] + bytes[1] + bytes[0]
 
     @staticmethod
     def b64decode(data):
@@ -244,14 +243,10 @@ class _signedimp_util:
             quad = data[i:i+4]
             if quad.endswith("=="):
                 quad = quad[:2]+"AA"
-                trim = 2
+                output.append(_signedimp_util._b64unquad(quad)[:1])
             elif quad.endswith("="):
                 quad = quad[:3]+"A"
-                trim = 1
-            else:
-                trim = 0
-            if trim:
-                output.append(_signedimp_util._b64unquad(quad)[:-1*trim])
+                output.append(_signedimp_util._b64unquad(quad)[:2])
             else:
                 output.append(_signedimp_util._b64unquad(quad))
         return "".join(output)
@@ -403,9 +398,11 @@ class SignedHashDatabase(object):
     def _check_hash(self,typ,hash,data):
         """Check whether the hash of the given data matches the one given."""
         if typ == "sha1":
-            return _signedimp_util.sha1(data).hexdigest() == hash
-        if typ == "md5":
-            return _signedimp_util.md5(data).hexdigest() == hash
+            h_sha1 = _signedimp_util.sha1(data)
+            return (h_sha1.hexdigest() == hash)
+        elif typ == "md5":
+            h_md5 = _signedimp_util.md5(data)
+            return (h_md5.hexdigest() == hash)
         raise ValueError("unknown hash type: %s" % (typ,))
 
     def _strip(self,s):
