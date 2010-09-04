@@ -446,6 +446,7 @@ class SignedHashDatabase(object):
                 for k in self.valid_keys:
                     if k.fingerprint() == fingerprint:
                         signatures.append((k,signature))
+                        break
         #  If there weren't any usable signatures, we can't use this data.
         if not signatures:
             return
@@ -682,7 +683,7 @@ class SignedImportManager(object):
         """Verify a file found on the local filesystem"""
         (basepath,hashdb) = self._find_hashdb(pathname)
         if hashdb is None:
-            raise IntegrityCheckMissing(pathname)
+            raise IntegrityCheckMissing("no hashdb for " + pathname)
         f = open(pathname,"rb")
         try:
             data = f.read()

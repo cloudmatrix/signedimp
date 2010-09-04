@@ -1,14 +1,16 @@
 
-v0.3.1
-
-    * Conform to some subtler points of the PEP302 importer spec, with respect
-      to module reloading and sys.meta_path.
-
 v0.3.0
 
     * Removed separate hashing of modules vs data files - all files are now
       hashed independently and the various files that make up a module import
       are checked independently at runtime.
+    * Conform to some subtler points of the PEP302 importer spec, with respect
+      to module reloading and sys.meta_path.
+    * Add RPython compatability to signedimp.compat.esky
+    * It is no longer possible to specify 'randbytes' at the module level
+      in the various cryptobase modules, you must explicitly pass a callable
+      to each constructor.
+
 
 v0.2.0
 

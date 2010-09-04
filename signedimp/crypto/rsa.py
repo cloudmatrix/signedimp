@@ -15,7 +15,7 @@ import os
 from math import ceil
 
 from signedimp.cryptobase.rsa import RSAKey, math
-from signedimp.crypto.pss import PSS, strxor
+from signedimp.crypto.pss import PSSPadder, strxor
 
 #  These will be imported lazily as required
 hmac = None
@@ -68,7 +68,7 @@ class RSAKey(RSAKey):
     """Public key using RSS with no padding."""
 
     _math = math
-    _PSS = PSS
+    _PSS = PSSPadder
 
 
     def __init__(self,modulus,pub_exponent,priv_exponent=None,**kwds):

@@ -45,6 +45,9 @@ def _get_bootstrap_code_rpython(key):
     signedhashdb_source = signedhashdb_source.replace("os.sep","SEP")
     signedhashdb_source = signedhashdb_source.replace("import sys","")
 
+    pss_source = _getsrc(cryptobase.pss,"    ")
+    pss_source = pss_source.replace("import sys","")
+
     rsakey_source = _getsrc(cryptobase.rsa,"    ")
     rsakey_source = rsakey_source.replace("import sys","")
 
@@ -60,12 +63,15 @@ from pypy.rlib.rbigint import rbigint
 from pypy.rlib.rmd5 import RMD5
 from pypy.rlib.rsha import RSHA
 
-def md5(self,data=""):
+global md5
+global sha1
+
+def md5(data=""):
     h = RMD5()
     h.update(data)
     return h
 
-def sha1(self,data=""):
+def sha1(data=""):
     h = RSHA()
     h.update(data)
     return h
@@ -78,25 +84,79 @@ def _make_signedimp_verify(orig_verify):
     class IntegrityCheckFailed(IntegrityCheckError):
         pass
     HASHFILE_NAME = %(hashfile_name)r
+
+    %(pss_source)s
+    def zip(s1,s2):
+        assert len(s1) == len(s2)
+        pairs = []
+        for i in xrange(len(s1)):
+            pairs.append((s1[i],s2[i]))
+        return pairs
+    def make_mgf1(hash):
+        def mgf1(mgfSeed,maskLen):
+            assert maskLen > 0
+            hLen = len(hash().digest())
+            T = ""
+            for counter in range(int(math.ceil(maskLen / (hLen*1.0)))):
+                C = chr(counter)#math.long_to_bytes(counter)
+                C = ('\\x00'*(4 - len(C))) + C
+                assert len(C) == 4, "counter was too big"
+                T += hash(mgfSeed + C).digest()
+            assert len(T) >= maskLen, "generated mask was too short"
+            return T[:maskLen]
+        return mgf1
+    MGF1_SHA1 = make_mgf1(sha1)
+
     %(rsakey_source)s
+
     class _signedimp_util:
 %(b64unquad_source)s
 %(b64decode_source)s
-        sha1 = staticmethod(sha1)
-        md5 = staticmethod(md5)
+        def sha1(self,data=""):
+            return sha1(data)
+        def md5(self,data=""):
+            return md5(data)
         def profile_call(self,func):
             return func
     _signedimp_util = _signedimp_util()
+
 %(signedhashdb_source)s
+
     key = %(pubkey)r
+    key.fingerprint()
     key.modulus = rbigint.fromlong(key.modulus)
     key.pub_exponent = rbigint.fromlong(key.pub_exponent)
     def _bigint_pow(a,b,m=None):
         assert isinstance(a,rbigint)
         return a.pow(b,m)
+    def _bigint_long_to_bytes(n):
+        rbytes = ""
+        zero = rbigint(sign=1)
+        while n.gt(zero):
+            rbytes +=chr(n.and_(rbigint.fromint(0x000000FF)).toint())
+            rbytes +=chr(n.and_(rbigint.fromint(0x0000FF00)).rshift(8).toint())
+            rbytes +=chr(n.and_(rbigint.fromint(0x00FF0000)).rshift(16).toint())
+            rbytes +=chr(n.and_(rbigint.fromint(0xFF000000)).rshift(24).toint())
+            n = n.rshift(32)
+        i = len(rbytes) - 1
+        while i > 0 and rbytes[i] == "\\x00":
+            i -= 1
+        bytes = ""
+        for j in xrange(i+1):
+            bytes += rbytes[i-j]
+        return bytes
+    def _bigint_bytes_to_long(bytes):
+        n = rbigint(sign=1)
+        for b in bytes:
+            n = (n.lshift(8)).add(rbigint(digits=[ord(b)],sign=1))
+        return n
     RSAKey._math.pow = staticmethod(_bigint_pow)
+    RSAKey._math.long_to_bytes = staticmethod(_bigint_long_to_bytes)
+    RSAKey._math.bytes_to_long = staticmethod(_bigint_bytes_to_long)
+
+    import os
     def readfile(pathnm):
-        fh = os_open(pathnm,0,0)
+        fh = os_open(pathnm,os.O_BINARY,0)
         try:
             data = ""
             new_data = os_read(fh,1024*64)
@@ -106,6 +166,7 @@ def _make_signedimp_verify(orig_verify):
             return data
         finally:
             os_close(fh)
+
     _hashdbs = {}
     def _load_hashdb(path):
         path = dirname(path)
@@ -124,11 +185,13 @@ def _make_signedimp_verify(orig_verify):
             if path == new_path:
                 break
         raise IntegrityCheckMissing(path)
+
     def verify(target_file):
         orig_verify(target_file)
         rootpath,hashdb = _load_hashdb(target_file)
         hashdb.verify(target_file[len(rootpath)+1:],readfile(target_file))
     return verify
+
 verify = _make_signedimp_verify(verify)
 """ % locals()
 

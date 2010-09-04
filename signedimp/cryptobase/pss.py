@@ -14,9 +14,8 @@ as optional arguments to the encoding classes.
 
 Encoding under this scheme requires a strong source of random bytes.  Since 
 this module must be import-less pure python, it cannot obtain such bytes 
-automatically.  You must either (1) explicitly specify the 'randbytes' argument
-when constructing a PSS instance or (2) bind the name 'randbytes' in this
-module to an appropriate function.
+automatically.  You must explicitly specify the 'randbytes' argument when
+constructing a PSS instance.
 
 """
 
@@ -62,7 +61,7 @@ class math:
 
     @staticmethod
     def strxor(s1,s2):
-        return "".join(map(lambda x, y: chr(ord(x) ^ ord(y)), s1, s2))
+        return "".join([chr(ord(x) ^ ord(y)) for (x,y) in zip(s1,s2)])
 
 
 def make_mgf1(hash,math=math):
@@ -80,7 +79,7 @@ def make_mgf1(hash,math=math):
 
         The algorithm is from PKCS#1 version 2.1, appendix B.2.1.
         """
-        hLen = hash().digest_size
+        hLen = len(hash().digest())
         if maskLen > 2**32 * hLen:
             raise ValueError("mask too long")
         T = ""
@@ -97,7 +96,26 @@ def make_mgf1(hash,math=math):
 MGF1_SHA1 = make_mgf1(sha1)
 
 
-class PSS(object):
+class Padder(object):
+    """Generic base class for RSA padder objects."""
+
+    def __init__(self,size,randbytes):
+        self.size = size
+        self.randbytes = randbytes
+
+
+class RawPadder(Padder):
+    """Padder implementation that just adds null bytes."""
+
+    def encode(self,message):
+        return _rjust(message,self.size/8,"\x00")
+
+    def verify(self,message,signature):
+        return (_rjust(message,self.size/8,"\x00") == signature)
+
+
+
+class PSSPadder(Padder):
     """Class implementing PSS encoding/verifying.
 
     This class can be used to encode/verify message signatures using the
@@ -110,18 +128,19 @@ class PSS(object):
 
     _math = math
 
-    def __init__(self,size,randbytes=None,hash=sha1,mgf=MGF1_SHA1,saltlen=8):
+    def __init__(self,size,randbytes,hash=None,mgf=None,saltlen=8):
         """Initialize a PSS object.
 
         You must specify the size of the key modulus in bytes.  Optional
         arguments include a source of random bytes, hash function, mask
         generation function, and salt length.
         """
-        self.size = size
-        if randbytes is None:
-            randbytes = globals().get("randbytes",None)
-        self.randbytes = randbytes
+        Padder.__init__(self,size,randbytes)
+        if hash is None:
+            hash = sha1
         self.hash = hash
+        if mgf is None:
+            mgf = MGF1_SHA1
         self.mgf = mgf
         self.salt_length = saltlen
 
@@ -130,7 +149,7 @@ class PSS(object):
 
     def encode(self,M):
         """Encode the message M into a signature."""
-        emBits = self.size*8 - 1
+        emBits = self.size - 1
         emLen = int(self._math.ceil(emBits / 8.0))
         sLen = self.salt_length
         #  Generate the message hash
@@ -157,7 +176,7 @@ class PSS(object):
 
     def verify(self,M,EM):
         """Verify that EM is the signature of message M."""
-        emBits = self.size*8 - 1
+        emBits = self.size - 1
         emLen = int(self._math.ceil(emBits / 8.0))
         sLen = self.salt_length
         #  Generate the message hash
@@ -169,8 +188,12 @@ class PSS(object):
         if EM[-1] != "\xbc":
             return False
         #  Deconstruct the signature into its parts
-        maskedDB = EM[:emLen-hLen-1]
-        H = EM[emLen-hLen-1:emLen-1]
+        maskEnd = emLen - hLen - 1
+        assert maskEnd > 0
+        maskedDB = EM[:maskEnd]
+        hashEnd = emLen - 1
+        assert hashEnd > 0
+        H = EM[maskEnd:hashEnd]
         #  Check that the first bit is zeroed.  As discussed in encode(),
         #  (8*emLen - emBits) is always 1 in this implementation.
         if (ord(maskedDB[0]) & 128) != 0:
@@ -180,16 +203,33 @@ class PSS(object):
         DB = self._math.strxor(maskedDB,dbMask)
         DB = chr(ord(DB[0]) & 127) + DB[1:]
         #  Check for well-formedness of DB
-        for c in DB[:emLen-hLen-sLen-2]:
+        checkEnd = emLen - hLen - sLen - 2
+        assert checkEnd > 0
+        for c in DB[:checkEnd]:
             if c != "\0":
                 return False
         if DB[emLen-hLen-sLen-2] != "\x01":
             return False
         #  Re-construct and verify the message hash
-        salt = DB[-1*sLen:]
+        saltStart = len(DB) - sLen
+        assert saltStart > 0
+        salt = DB[saltStart:]
         M1 = "\0"*8 + mHash + salt
         H1 = self.hash(M1).digest()
         if H != H1:
             return False
         return True
+
+
+def _rjust(string,size,pad=" "):
+    """Right-justify a string to the given size.
+
+    This is a re-implementation for RPython compatability, as they don't
+    seem to have implemented rjust.
+    """
+    if len(string) >= size:
+        return string
+    extra = pad * (size - len(string))
+    return string + extra
+
 

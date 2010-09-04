@@ -6,7 +6,7 @@
 
 """
 
-from signedimp.cryptobase.pss import PSS, make_mgf1
+from signedimp.cryptobase.pss import RawPadder, PSSPadder, make_mgf1
 
 from math import ceil
 from Crypto.Util.number import long_to_bytes
@@ -53,7 +53,7 @@ def load_urandom():
 MGF1_SHA1 = make_mgf1(sha1,math=math)
 
 
-class PSS(PSS):
+class PSSPadder(PSSPadder):
     """Class implementing PSS encoding/verifying, fast version.
 
     This class can be used to encode/verify message signatures using the
@@ -75,5 +75,5 @@ class PSS(PSS):
         """
         if randbytes is None:
             randbytes = load_urandom()
-        super(PSS,self).__init__(size,randbytes,hash,mgf,saltlen)
+        super(PSSPadder,self).__init__(size,randbytes,hash,mgf,saltlen)
 

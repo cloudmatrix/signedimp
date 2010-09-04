@@ -7,7 +7,15 @@
 """
 
 
-from signedimp.cryptobase.pss import PSS, math
+# The source for this module might get inlined into some bootstrapping code,
+# so we only try these imports if the names aren't already available.
+
+
+global PSSPadder
+try:
+    PSSPadder
+except NameError:
+    from signedimp.cryptobase.pss import RawPadder, PSSPadder, math, _rjust
 
 global sha1
 try:
@@ -53,9 +61,10 @@ class RSAKey(object):
     """Public key using RSS with optional padding."""
 
     _math = math
-    _PSS = PSS
+    _PSS = PSSPadder
 
     def __init__(self,modulus,pub_exponent,priv_exponent=None,**kwds):
+        self._fingerprint = ""
         self.modulus = modulus
         self.pub_exponent = pub_exponent
         self.priv_exponent = priv_exponent
@@ -66,8 +75,10 @@ class RSAKey(object):
         self._padders = {}
 
     def fingerprint(self):
-        hash = sha1("RSAKey %s %s" % (self.modulus,self.pub_exponent,))
-        return hash.hexdigest()
+        if not self._fingerprint:
+            hash = sha1("RSAKey %s %s" % (self.modulus,self.pub_exponent,))
+            self._fingerprint = hash.hexdigest()
+        return self._fingerprint
 
     def get_public_key(self):
         return self.__class__(self.modulus,self.pub_exponent)
@@ -80,6 +91,8 @@ class RSAKey(object):
     def __setstate__(self,state):
         state["_padders"] = {}
         self.__dict__.update(state)
+        if "_fingerprint" not in self.__dict__:
+            self._fingerprint = ""
 
     def __eq__(self,other):
         return self.__dict__ == other.__dict__
@@ -98,19 +111,15 @@ class RSAKey(object):
         s += ")"
         return s
 
-    def __getstate__(self):
-        return self.__dict__.copy()
-
-    def __setstate__(self,state):
-        self.__dict__.update(state)
-
     def encrypt(self,message):
         m = self._math.bytes_to_long(message)
-        return self._math.long_to_bytes(self._math.pow(m,self.pub_exponent,self.modulus))
+        e = self._math.long_to_bytes(self._math.pow(m,self.pub_exponent,self.modulus))
+        return e
 
     def decrypt(self,message):
         m = self._math.bytes_to_long(message)
-        return self._math.long_to_bytes(self._math.pow(m,self.priv_exponent,self.modulus))
+        d = self._math.long_to_bytes(self._math.pow(m,self.priv_exponent,self.modulus))
+        return d
 
     def sign(self,message,padding_scheme=None):
         if padding_scheme is None:
@@ -137,7 +146,6 @@ class RSAKey(object):
             return False
         return padder.verify(message,encsig)
         
-
     def _get_padder(self,scheme):
         if self.allowed_padding_schemes is not None:
             if scheme not in self.allowed_padding_schemes:
@@ -147,32 +155,13 @@ class RSAKey(object):
             padder = self._padders[scheme]
         except KeyError:
             if scheme == "pss-sha1":
-                padder = self._PSS(self.size/8,self.randbytes)
+                padder = self._PSS(self.size,self.randbytes)
             elif scheme == "raw":
-                padder = self._RawPadder(self.size)
+                padder = RawPadder(self.size,self.randbytes)
             else:
                 msg = "unrecognised padding scheme: %s" % (scheme,)
                 raise ValueError(msg)
             self._padders[scheme] = padder
         return padder
 
-    class _RawPadder:
-        def __init__(self,size):
-            self.size = size
-        def encode(self,message):
-            return _rjust(message,self.size/8,"\x00")
-        def verify(self,message,signature):
-            return (_rjust(message,self.size/8,"\x00") == signature)
-
-
-def _rjust(string,size,pad=" "):
-    """Right-justify a string to the given size.
-
-    This is a re-implementation for RPython compatability, as they don't
-    seem to have implemented rjust.
-    """
-    if len(string) >= size:
-        return string
-    extra = pad * (size - len(string))
-    return string + extra  
 
