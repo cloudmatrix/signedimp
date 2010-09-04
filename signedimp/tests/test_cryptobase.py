@@ -113,6 +113,23 @@ class TestCryptoBase(unittest.TestCase):
             self.assertFalse(pubkey.verify(bs,self._corrupt(sig,10)))
             self.assertFalse(pubkey.verify(bs,self._corrupt(sig,5)))
             self.assertFalse(pubkey.verify(bs,self._corrupt(sig,1)))
+                
+    def test_pss_verify(self):
+        padder = pss.PSSPadder(1024,os.urandom)
+        self.assertTrue(padder.verify("",padder.encode("")))
+        self.assertTrue(padder.verify("\x00",padder.encode("\x00")))
+        for i in xrange(100):
+            ln = random.randint(1,100)
+            bs = os.urandom(ln)
+            sig = padder.encode(bs)
+            self.assertTrue(padder.verify(bs,sig))
+            self.assertNotEquals(bs,sig)
+            self.assertTrue(padder.verify(bs,sig))
+            self.assertFalse(padder.verify(bs,sig+"\x00"))
+            self.assertFalse(padder.verify(bs,self._corrupt(sig,ln)))
+            self.assertFalse(padder.verify(bs,self._corrupt(sig,10)))
+            self.assertFalse(padder.verify(bs,self._corrupt(sig,5)))
+            self.assertFalse(padder.verify(bs,self._corrupt(sig,1)))
         
 
 

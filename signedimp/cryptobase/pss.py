@@ -230,6 +230,6 @@ def _rjust(string,size,pad=" "):
     if len(string) >= size:
         return string
     extra = pad * (size - len(string))
-    return string + extra
+    return extra + string
 
 
