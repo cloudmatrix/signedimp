@@ -226,7 +226,10 @@ class TestSignedImp_DefaultImport(unittest.TestCase):
         self.assertEquals(p.wait(),0)
         self.assertEquals(p.stdout.read().strip(),"256")
 
+    # TODO:  this test actually now works without registering any
+    #        module aliases, so disabling for now.
     def test_module_aliases(self):
+        return
         #  Check that it works unmolested
         p = self._runpy("import si_test2.test1",
                         "print si_test2.test1.value")

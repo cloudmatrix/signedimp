@@ -852,7 +852,7 @@ class SignedLoader:
             return gdfp(path)
 
     @_signedimp_util.profile_call
-    def _verify(self,path,data):
+    def _verify(self,path,data,canonicalise=True):
         """Verify data for the given path.
 
         This performs verification against the local database and the main
@@ -860,14 +860,29 @@ class SignedLoader:
         either location, IntegrityCheckMissing error is raised.
         """
         try:
-            self.hashdb.verify(path,data)
-        except IntegrityCheckMissing:
-            self.manager.hashdb.verify(path,data)
-        else:
             try:
-                self.manager.hashdb.verify(path,data)
+                self.hashdb.verify(path,data)
             except IntegrityCheckMissing:
-                pass
+                self.manager.hashdb.verify(path,data)
+            else:
+                try:
+                    self.manager.hashdb.verify(path,data)
+                except IntegrityCheckMissing:
+                    pass
+        except IntegrityCheckMissing:
+            if not canonicalise:
+                raise
+            for (suffix,_,typ) in imp.get_suffixes():
+                if path.endswith(suffix):
+                    modname = path[:-1*len(suffix)]
+                    modname = modname.replace("/",".").replace("\\",".")
+                    cmodname = self.manager.get_canonical_modname(modname)
+                    if cmodname != modname:
+                        cpath = cmodname.replace(".","/") + suffix
+                        self._verify(cpath,data,False)
+                        break
+            else:
+                raise
 
     def _load_verified_module(self,fullname):
         """Verify and load the named module.
