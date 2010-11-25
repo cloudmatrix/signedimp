@@ -3,6 +3,7 @@ v0.3.1
 
     * Add ability to unsign a previously-signed frozen app, but inserting
       a DummySignedImportManager into the bootstrapping code.
+    * Fix rpython esky compat script for non-windows platforms.
 
 
 v0.3.0

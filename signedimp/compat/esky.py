@@ -55,6 +55,13 @@ def _get_bootstrap_code_rpython(key):
     b64unquad_source = _getsrc(bootstrap._signedimp_util._b64unquad,"    ")
 
     pubkey = key.get_public_key()
+
+    import os
+    import sys
+    if sys.platform == "win32":
+        O_BINARY = os.O_BINARY
+    else:
+        O_BINARY = 0
      
     return """
 
@@ -154,9 +161,8 @@ def _make_signedimp_verify(orig_verify):
     RSAKey._math.long_to_bytes = staticmethod(_bigint_long_to_bytes)
     RSAKey._math.bytes_to_long = staticmethod(_bigint_bytes_to_long)
 
-    import os
     def readfile(pathnm):
-        fh = os_open(pathnm,os.O_BINARY,0)
+        fh = os_open(pathnm,%(O_BINARY)d,0)
         try:
             data = ""
             new_data = os_read(fh,1024*64)
