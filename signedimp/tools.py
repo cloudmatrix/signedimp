@@ -90,7 +90,9 @@ def get_bootstrap_code(indent=""):
 %(indent)s    def _signedimp_init():
 %(indent)s        import imp
 %(indent)s        signedimp = imp.new_module("signedimp")
-%(bscode)s
+%(indent)s
+%(bscode)s        # <-- code from signedimp.bootstrap inserted inline here
+%(indent)s
 %(indent)s        lvars = locals()
 %(indent)s        for nm in __all__:
 %(indent)s            setattr(signedimp,nm,lvars[nm])
@@ -233,7 +235,7 @@ def sign_zipfile(file,key,hash="sha1",outfile=signedimp.HASHFILE_NAME):
         outfile.write(hashdata)
 
 
-def sign_py2exe_app(appdir,key=None,hash="sha1",check_modules=None):
+def sign_py2exe_app(appdir,key=None,hash="sha1",check_modules=None,manager_clas_name="SignedImportManager"):
     """Sign the py2exe app found in the specified directory.
 
     This function signs the bundled modules found in the given py2exe app
@@ -286,9 +288,9 @@ try:
     if isinstance(sys.meta_path[0],signedimp.SignedImportManager):
         sys.meta_path[0].add_valid_key(k)
     else:
-        signedimp.SignedImportManager([k]).install()
+        signedimp.%(manager_class_name)s([k]).install()
 except (IndexError,AttributeError):
-    signedimp.SignedImportManager([k]).install()
+    signedimp.%(manager_class_name)s([k]).install()
 
 """ % locals()
     #  Hack the bootstrap code into the start of each script to be run.
@@ -314,7 +316,7 @@ except (IndexError,AttributeError):
     sign_directory(appdir,key,hash=hash)
 
 
-def sign_py2app_bundle(appdir,key=None,hash="sha1",check_modules=None):
+def sign_py2app_bundle(appdir,key=None,hash="sha1",check_modules=None,manager_class_name="SignedImportManager"):
     """Sign the py2app bundle found in the specified directory.
 
     This function signs the bundled modules found in the given py2app bundle
@@ -371,9 +373,9 @@ try:
     if isinstance(sys.meta_path[0],signedimp.SignedImportManager):
         sys.meta_path[0].add_valid_key(k)
     else:
-        signedimp.SignedImportManager([k]).install()
+        signedimp.%(manager_class_name)s([k]).install()
 except (IndexError,AttributeError):
-    signedimp.SignedImportManager([k]).install()
+    signedimp.%(manager_class_name)s([k]).install()
 
 """ % locals()
     app = refreeze.Py2App(appdir)
@@ -405,7 +407,7 @@ except (IndexError,AttributeError):
     sign_directory(os.path.join(appdir,"Contents","Resources"),key,hash=hash)
     
 
-def sign_cxfreeze_app(appdir,key=None,hash="sha1",check_modules=None):
+def sign_cxfreeze_app(appdir,key=None,hash="sha1",check_modules=None,manager_class_name="SignedImportManager"):
     """Sign the cxfreeze app found in the specified directory.
 
     This function signs the modules found in the given cxfreeze application
@@ -466,9 +468,9 @@ try:
     if isinstance(sys.meta_path[0],signedimp.SignedImportManager):
         sys.meta_path[0].add_valid_key(k)
     else:
-        signedimp.SignedImportManager([k]).install()
+        signedimp.%(manager_class_name)s([k]).install()
 except (IndexError,AttributeError):
-    signedimp.SignedImportManager([k]).install()
+    signedimp.%(manager_class_name)s([k]).install()
 """ % locals()
     #  Add the bootstrapping code to any executables found in the dir.
     for nm in os.listdir(appdir):

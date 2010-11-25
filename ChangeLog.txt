@@ -1,4 +1,10 @@
 
+v0.3.1
+
+    * Add ability to unsign a previously-signed frozen app, but inserting
+      a DummySignedImportManager into the bootstrapping code.
+
+
 v0.3.0
 
     * Removed separate hashing of modules vs data files - all files are now

@@ -22,7 +22,7 @@ add the necessary bootstrapping code to your application.
 __all__ = ["HASHFILE_NAME","IntegrityCheckError",
            "IntegrityCheckFailed","IntegrityCheckMissing",
            "SignedImportManager","SignedLoader","RSAKey",
-           "DefaultImporter"]
+           "DefaultImporter","DummySignedImportManager"]
 
 
 #  Careful now, we can't just import things willy-nilly.  Make sure you
@@ -476,6 +476,17 @@ class SignedHashDatabase(object):
             hashes.append((htyp,hval))
 
 
+class DummySignedHashDatabase(SignedHashDatabase):
+    """SignedHashDatabase that reports everything as verified.
+
+    This is mostly useful for DummySignedImportManager, which can be used
+    to disabled signed imports on a modified executable.
+    """
+    def parse_hash_data(self,hashdata):
+        pass
+    def verify(self,path,data):
+        pass
+
 
 class SignedImportManager(object):
     """Meta-path import hook for managing signed imports.
@@ -488,10 +499,12 @@ class SignedImportManager(object):
     This will place the manager as the first entry on sys.meta_path.
     """
 
+    SignedHashDatabase = SignedHashDatabase
+
     def __init__(self,valid_keys=[]):
         self.valid_keys = [k for k in valid_keys]
         self.module_aliases = {}
-        self.hashdb = SignedHashDatabase(self.valid_keys)
+        self.hashdb = self.SignedHashDatabase(self.valid_keys)
         self._hashdb_cache = {}
 
     def add_valid_key(self,key):
@@ -637,7 +650,7 @@ class SignedImportManager(object):
         """
         if path is None:
             hashdata = loader.get_data(HASHFILE_NAME)
-            hashdb = SignedHashDatabase(self.valid_keys)
+            hashdb = self.SignedHashDatabase(self.valid_keys)
             hashdb.parse_hash_data(hashdata)
         else:
             try:
@@ -645,7 +658,7 @@ class SignedImportManager(object):
             except KeyError:
                 hashdata = loader.get_data(path)
                 root_path = os.path.dirname(path)
-                hashdb = SignedHashDatabase(self.valid_keys,root_path=root_path)
+                hashdb = self.SignedHashDatabase(self.valid_keys,root_path=root_path)
                 hashdb.parse_hash_data(hashdata)
                 self._hashdb_cache[path] = hashdb
         return hashdb
@@ -669,7 +682,7 @@ class SignedImportManager(object):
                 finally:
                     f.close()
                 root_path = os.path.dirname(hashfile)
-                hashdb = SignedHashDatabase(self.valid_keys,root_path=root_path)
+                hashdb = self.SignedHashDatabase(self.valid_keys,root_path=root_path)
                 hashdb.parse_hash_data(hashdata)
                 self._hashdb_cache[hashfile] = hashdb
                 return path,hashdb
@@ -732,6 +745,16 @@ class SignedImportManager(object):
             return self._orig_load_source(name,pathname,file)
         else:
             return self._orig_load_source(name,pathname)
+
+
+class DummySignedImportManager(SignedImportManager):
+    """SignedImportManager that reports everything as verified.
+
+    This is mostly useful for disablying signed imports on an already-signed
+    executable - you just sign it again using this class to disable all
+    signature checking.
+    """
+    SignedHashDatabase = DummySignedHashDatabase
 
 
 class SignedLoader:

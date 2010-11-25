@@ -103,15 +103,13 @@ and one line for each module hash.  Here's a short example::
       key2fingerprint b64-encoded-signature2
 
       md5
-      m 76f3f13442c26fd4f1c709c7b03c6b76 os
-      m f56dbc5ee6774e857a7ef07accdbd19b hashlib
-      d 43b74fc5d2acb6b4e417f4feff06dd81 some/data/file.txt
+      76f3f13442c26fd4f1c709c7b03c6b76 os.pyc
+      f56dbc5ee6774e857a7ef07accdbd19b hashlib.pyc
+      43b74fc5d2acb6b4e417f4feff06dd81 some/data/file.txt
       ----
  
-The file can contain hashes for different kinds of data; "m" indicates a module
-hash while "d" indicates a generic data file.  The format of the fingerprint
-and signature depend on the types of key being used, and should be treated as
-ASCII blobs.
+The format of the fingerprint and signature depend on the types of key being
+used, and should be treated as ASCII blobs.
 
 To create a manifest file you will need a key object that includes the private
 key data.  You can then use the functions in the "tools" submodule::
