@@ -266,17 +266,20 @@ class CXFreeze(FrozenApp):
 
 
 _CXFREEZE_CHAINLOAD_INITMOD = """
-import zipimport
+try:
+    from zipimportx import zipimporter
+except ImportError:
+    from zipimport import zipimporter
 initmod = "cx_Freeze__init__"
 try:
-    imp = zipimport.zipimporter(EXCLUSIVE_ZIP_FILE_NAME)
-    imp.find_module(initmod)
+    zimp = zipimporter(EXCLUSIVE_ZIP_FILE_NAME)
+    zimp.find_module(initmod)
     INITSCRIPT_ZIP_FILE_NAME = EXCLUSIVE_ZIP_FILE_NAME
 except ImportError:
-    imp = zipimport.zipimporter(SHARED_ZIP_FILE_NAME)
-    imp.find_module(initmod)
+    zimp = zipimporter(SHARED_ZIP_FILE_NAME)
+    zimp.find_module(initmod)
     INITSCRIPT_ZIP_FILE_NAME = SHARED_ZIP_FILE_NAME
-code = imp.get_code(initmod)
+code = zimp.get_code(initmod)
 exec code
 """
 
