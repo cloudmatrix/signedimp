@@ -141,9 +141,9 @@ def _make_signedimp_verify(orig_verify):
         zero = rbigint(sign=1)
         while n.gt(zero):
             rbytes +=chr(n.and_(rbigint.fromint(0x000000FF)).toint())
-            rbytes +=chr(n.and_(rbigint.fromint(0x0000FF00)).rshift(8).toint())
-            rbytes +=chr(n.and_(rbigint.fromint(0x00FF0000)).rshift(16).toint())
-            rbytes +=chr(n.and_(rbigint.fromint(0xFF000000)).rshift(24).toint())
+            rbytes +=chr(n.rshift(8).and_(rbigint.fromint(0x0000FF)).toint())
+            rbytes +=chr(n.rshift(16).and_(rbigint.fromint(0x00FF)).toint())
+            rbytes +=chr(n.rshift(24).and_(rbigint.fromint(0xFF)).toint())
             n = n.rshift(32)
         i = len(rbytes) - 1
         while i > 0 and rbytes[i] == "\\x00":

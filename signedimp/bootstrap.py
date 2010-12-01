@@ -220,10 +220,10 @@ class _signedimp_util:
                 raise ValueError("invalid base64-encoded data")
         bytes = []
         while n > 0:
-            bytes.append(chr(n & 0x000000FF))
-            bytes.append(chr((n & 0x0000FF00) >> 8))
-            bytes.append(chr((n & 0x00FF0000) >> 16))
-            bytes.append(chr((n & 0xFF000000) >> 24))
+            bytes.append(chr((n >> 0)  & 0x000000FF))
+            bytes.append(chr((n >> 8)  & 0x0000FF))
+            bytes.append(chr((n >> 16) & 0x00FF))
+            bytes.append(chr((n >> 24) & 0xFF))
             n = (n & 0x00000000) >> 32
         while len(bytes) < 3:
             bytes.append("\x00")
