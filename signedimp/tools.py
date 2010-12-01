@@ -235,7 +235,7 @@ def sign_zipfile(file,key,hash="sha1",outfile=signedimp.HASHFILE_NAME):
         outfile.write(hashdata)
 
 
-def sign_py2exe_app(appdir,key=None,hash="sha1",check_modules=None,manager_clas_name="SignedImportManager"):
+def sign_py2exe_app(appdir,key=None,hash="sha1",check_modules=None,manager_class_name="SignedImportManager"):
     """Sign the py2exe app found in the specified directory.
 
     This function signs the bundled modules found in the given py2exe app
