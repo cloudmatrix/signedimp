@@ -499,12 +499,12 @@ class SignedImportManager(object):
     This will place the manager as the first entry on sys.meta_path.
     """
 
-    SignedHashDatabase = SignedHashDatabase
+    SignedHashDatabaseClass = SignedHashDatabase
 
     def __init__(self,valid_keys=[]):
         self.valid_keys = [k for k in valid_keys]
         self.module_aliases = {}
-        self.hashdb = self.SignedHashDatabase(self.valid_keys)
+        self.hashdb = self.SignedHashDatabaseClass(self.valid_keys)
         self._hashdb_cache = {}
 
     def add_valid_key(self,key):
@@ -650,7 +650,7 @@ class SignedImportManager(object):
         """
         if path is None:
             hashdata = loader.get_data(HASHFILE_NAME)
-            hashdb = self.SignedHashDatabase(self.valid_keys)
+            hashdb = self.SignedHashDatabaseClass(self.valid_keys)
             hashdb.parse_hash_data(hashdata)
         else:
             try:
@@ -658,7 +658,7 @@ class SignedImportManager(object):
             except KeyError:
                 hashdata = loader.get_data(path)
                 root_path = os.path.dirname(path)
-                hashdb = self.SignedHashDatabase(self.valid_keys,root_path=root_path)
+                hashdb = self.SignedHashDatabaseClass(self.valid_keys,root_path=root_path)
                 hashdb.parse_hash_data(hashdata)
                 self._hashdb_cache[path] = hashdb
         return hashdb
@@ -682,7 +682,7 @@ class SignedImportManager(object):
                 finally:
                     f.close()
                 root_path = os.path.dirname(hashfile)
-                hashdb = self.SignedHashDatabase(self.valid_keys,root_path=root_path)
+                hashdb = self.SignedHashDatabaseClass(self.valid_keys,root_path=root_path)
                 hashdb.parse_hash_data(hashdata)
                 self._hashdb_cache[hashfile] = hashdb
                 return path,hashdb
@@ -754,7 +754,7 @@ class DummySignedImportManager(SignedImportManager):
     executable - you just sign it again using this class to disable all
     signature checking.
     """
-    SignedHashDatabase = DummySignedHashDatabase
+    SignedHashDatabaseClass = DummySignedHashDatabase
 
 
 class SignedLoader:
