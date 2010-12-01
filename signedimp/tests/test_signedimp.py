@@ -387,8 +387,9 @@ else:
             self.assertEquals(p.wait(),0)
 
         def test_replacement_load_dynamic_is_called(self):
-            #  py2exe loads .pyd via a stub that calls imp.load_dynamic().
+            #  py2exe loads .pyds via a stub that calls imp.load_dynamic().
             #  Corrupt one and make sure it's detected as invalid.
+            import Crypto.PublicKey._fastmath
             signedimp.tools.sign_py2exe_app(self.distdir)
             dynlib = "Crypto.PublicKey._fastmath.pyd"
             with open(os.path.join(self.distdir,dynlib),"ab") as f:
