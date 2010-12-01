@@ -985,7 +985,7 @@ class SignedLoader:
             exec code in mod.__dict__
         except Exception:
             if created:
-                sys.modules.pop(fullname)
+                sys.modules.pop(fullname,None)
             raise
         return mod
 

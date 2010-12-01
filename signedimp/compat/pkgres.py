@@ -11,8 +11,12 @@ are in use.
 
 """
 
-import pkg_resources
+import sys
 import signedimp
+if "pkg_resources" in sys.modules:
+    pkg_resources = sys.modules["pkg_resources"]
+else:
+    import pkg_resources
 
 _find_adapter = pkg_resources._find_adapter
 _provider_factories = pkg_resources._provider_factories
@@ -28,4 +32,5 @@ def _get_provider(mod):
 
 pkg_resources.register_loader_type(signedimp.SignedLoader,_get_provider)
 pkg_resources.register_loader_type(signedimp.DefaultImporter,DefaultProvider)
+
 
